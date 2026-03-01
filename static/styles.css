@@ -1,0 +1,612 @@
+:root {
+    /* Apple Glass Light Theme */
+    --primary-900: hsl(0, 0%, 100%);
+    --primary-800: hsl(210, 14%, 97%);
+    --primary-700: hsl(210, 13%, 95%);
+    --primary-600: hsl(210, 11%, 90%);
+    --primary-500: hsl(210, 9%, 85%);
+    --primary-400: hsl(210, 8%, 80%);
+    --primary-300: hsl(210, 10%, 40%);
+    --primary-200: hsl(210, 15%, 30%);
+    --primary-100: hsl(210, 20%, 20%);
+    --neutral-100: hsl(0, 0%, 100%);
+    --accent-400: hsl(210, 100%, 50%);
+    --text-1: hsl(210, 20%, 20%);
+    --text-2: hsl(210, 15%, 30%);
+    --text-3: hsl(210, 10%, 40%);
+    --surface-1: hsl(0, 0%, 100%);
+    --surface-2: hsl(210, 14%, 97%);
+    --surface-3: hsl(210, 13%, 95%);
+    --border-1: hsl(210, 9%, 85%);
+    --border-2: hsl(210, 11%, 90%);
+}
+
+*,
+::before,
+::after {
+    box-sizing: border-box;
+}
+
+* {
+    margin: 0;
+}
+
+html {
+    color-scheme: light;
+    font-family: system-ui;
+}
+
+body {
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #f5f5f7 0%, #e8e8eb 100%);
+        color: var(--text-1);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+}
+
+/* top mac/menu bar */
+.menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    /* stronger glass effect: more transparent + blur */
+    background: rgba(255,255,255,0.3);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid hsl(210, 9%, 85%);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    z-index: 1000;
+}
+
+.top-menu {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.top-menu .logo {
+    font-weight: 600;
+    margin-right: 2rem;
+    color: var(--text-1);
+}
+
+.top-menu li a {
+    color: var(--text-1);
+    text-decoration: none;
+    font-size: 0.9rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.top-menu li a:hover {
+    background: hsl(210, 14%, 97%);
+    color: var(--accent-400);
+}
+
+/* Menu Popups */
+.menu-popup {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: hsl(0, 0%, 100%, 0.95);
+    backdrop-filter: blur(20px);
+    border: 1px solid hsl(210, 9%, 85%);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px hsl(0, 0%, 0%, 0.1);
+    z-index: 1001;
+    min-width: 200px;
+    margin-top: 8px;
+}
+
+.menu-popup.hidden {
+    display: none;
+}
+
+.menu-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    color: var(--text-1);
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.menu-item:hover {
+    background: hsl(210, 14%, 97%);
+    color: var(--accent-400);
+}
+
+.menu-item:first-child {
+    border-radius: 8px 8px 0 0;
+}
+
+.menu-item:last-child {
+    border-radius: 0 0 8px 8px;
+}
+
+.menu h1 {
+    color: var(--text-1);
+}
+
+.menu nav ul {
+    list-style: none;
+    padding: 0;
+}
+
+.menu nav ul li {
+    display: inline;
+    margin: 0 15px;
+}
+
+.menu nav ul li a {
+    color: var(--text-1);
+    text-decoration: none;
+}
+
+/* make map extend under the header so the menu looks like translucent glass
+   floating above the map; sidebar content is pushed down slightly so it
+   doesn't hide under the header. */
+.container {
+    display: flex;
+    padding-top: 0;
+    height: 100vh;
+}
+
+.sidebar-toggle {
+    display: none;
+}
+
+.sidebar {
+    width: 320px;
+    max-width: 80vw;
+    padding: 1.5rem;
+    /* make sidebar very translucent so map shows through */
+    background: rgba(255,255,255,0.25);
+    backdrop-filter: blur(20px);
+    border-right: 1px solid hsl(210, 9%, 85%);
+    overflow-y: auto;
+    box-shadow: 2px 0 8px hsl(0, 0%, 0%, 0.08);
+    margin-top: 40px; /* avoid being directly under header */
+}
+
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+    background: hsl(210, 9%, 85%);
+    border-radius: 3px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: hsl(210, 9%, 75%);
+}
+
+.map-wrapper {
+    flex: 1;
+    position: relative;
+}
+
+.map-wrapper #map {
+    width: 100%;
+    height: 100%;
+}
+
+/* Leaflet map styling */
+#map {
+    background: linear-gradient(135deg, #e8e8eb 0%, #f5f5f7 100%);
+}
+
+/* custom map markers with white blur */
+.map-marker {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.6),
+                inset 0 0 10px rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.9);
+}
+
+.map-marker:hover {
+    box-shadow: 0 0 30px rgba(33, 150, 243, 0.8),
+                inset 0 0 10px rgba(255, 255, 255, 0.4);
+}
+
+.map-wrapper iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0 0 0 0;
+}
+
+.card {
+    max-width: 500px;
+    margin: 0 auto 1.5rem;
+    padding: 1.5rem;
+    background: hsl(0, 0%, 100%, 0.8);
+    backdrop-filter: blur(20px);
+    border-radius: 12px;
+    border: 1px solid hsl(0, 0%, 100%, 0.5);
+    position: relative;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border-radius: inherit;
+    border: 1px solid hsl(210, 9%, 85%);
+    background: linear-gradient(135deg, hsl(0, 0%, 100%), hsl(210, 13%, 95%)) border-box;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px hsl(0, 0%, 0%, 0.1);
+}
+
+.flex-between {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+}
+
+.referral-code {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: hsl(from var(--surface-1) h s l / 0.5);
+    padding: 0.5ex 1ch;
+    font-size: 1.125rem;
+    border-radius: 12px;
+    color: var(--text-1);
+    letter-spacing: 3px;
+}
+
+.copy {
+    cursor: pointer;
+    background: 0;
+    border: 0;
+    padding: 0;
+    height: 1.5lh;
+
+    svg {
+        fill: var(--text-1);
+        width: 3ch;
+        height: 3ch;
+    }
+}
+
+.referred-users {
+    text-align: end;
+}
+
+.user-count {
+    font-size: 1.125rem;
+    color: var(--text-1);
+}
+
+.rewards {
+    text-align: center;
+    color: var(--text-1);
+    background: hsl(from var(--surface-1) h s l / 0.5);
+    padding: 1ex 3ch;
+    border-radius: 12px;
+}
+
+h1 {
+    color: var(--text-1);
+    font-size: 1.325rem;
+    font-weight: 500;
+}
+
+h2 {
+    font-size: 1.125rem;
+    font-weight: 400;
+}
+
+.text-accent {
+    color: var(--accent-400);
+}
+
+/* form inputs and buttons */
+.input-field {
+    width: 100%;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    border: 1px solid hsl(210, 9%, 85%);
+    border-radius: 8px;
+    background: hsl(0, 0%, 100%, 0.9);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: var(--accent-400);
+    box-shadow: 0 0 0 3px hsl(210, 100%, 50%, 0.1);
+}
+
+.action-btn {
+    width: 100%;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    border: 1px solid hsl(210, 9%, 85%);
+    border-radius: 8px;
+    background: hsl(0, 0%, 100%, 0.9);
+    color: var(--text-1);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    background: var(--accent-400);
+    color: white;
+    border-color: var(--accent-400);
+    box-shadow: 0 4px 12px hsl(210, 100%, 50%, 0.2);
+}
+
+.add-btn {
+    background: var(--accent-400);
+    color: white;
+    border-color: var(--accent-400);
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+}
+
+.add-btn:hover {
+    background: hsl(210, 100%, 45%);
+    border-color: hsl(210, 100%, 45%);
+}
+
+.form-section {
+    margin: 1.5rem 0;
+    padding: 1rem 0;
+    border-bottom: 1px solid hsl(210, 9%, 85%);
+}
+
+.form-section:last-of-type {
+    border-bottom: none;
+}
+
+.points-list {
+    margin-top: 1.5rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0 0 0;
+}
+
+.list li {
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    background: hsl(210, 14%, 97%, 0.8);
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    border: 1px solid hsl(210, 9%, 85%);
+    cursor: pointer;
+}
+
+.list li .point-info {
+    flex: 1;
+}
+
+.point-day {
+    font-size: 0.75rem;
+    color: var(--text-2);
+    margin-top: 0.25rem;
+}
+
+.point-info .point-name {
+    font-weight: 500;
+    color: var(--text-1);
+}
+
+.point-info .point-coords {
+    font-size: 0.8rem;
+    color: var(--text-3);
+    margin-top: 0.25rem;
+}
+
+.remove-btn {
+    background: none;
+    border: none;
+    color: #e74c3c;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-size: 1.1rem;
+    /* nudge down slightly to align better with list text */
+    position: relative;
+    top: 2px;
+}
+
+.remove-btn:hover {
+    background: hsl(0, 100%, 50%, 0.1);
+    color: #c0392b;
+}
+
+/* modal overlay and content */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+.modal.hidden {
+    display: none;
+}
+.modal-content {
+    background: hsl(0,0%,100%,0.95);
+    padding: 1.5rem;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 8px 24px hsl(0,0%,0%,0.2);
+}
+
+/* calendar/day filter */
+.calendar-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.calendar-day {
+    width: 100%;
+    aspect-ratio: 1;
+    background: hsl(0,0%,100%,0.85);
+    border: 1px solid hsl(210,9%,85%);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+    box-shadow: 0 1px 2px hsl(0,0%,0%,0.1);
+}
+
+.calendar-day:hover {
+    background: hsl(0,0%,100%,1);
+    box-shadow: 0 2px 4px hsl(0,0%,0%,0.15);
+}
+
+.calendar-day.selected {
+    background: var(--accent-400);
+    color: white;
+    transform: scale(1.1);
+}
+
+.calendar-day.has-points::after {
+    content: '';
+    position: absolute;
+    bottom: 4px;
+    width: 6px;
+    height: 6px;
+    background: var(--accent-400);
+    border-radius: 50%;
+}
+
+.calendar-settings {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-2);
+}
+
+/* responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+        height: auto;
+        position: relative;
+    }
+    
+    .sidebar-toggle {
+        display: block;
+        position: fixed;
+        /* move close to header for easier access on phones */
+        top: 45px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: var(--accent-400);
+        color: white;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        z-index: 1001;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .sidebar-toggle:active {
+        transform: scale(0.95);
+    }
+    
+    .sidebar {
+        width: 100%;
+        max-width: none;
+        border-right: none;
+        border-bottom: 1px solid hsl(210, 9%, 85%);
+        max-height: 50vh;
+        position: static;
+        transition: transform 0.3s ease, opacity 0.3s ease;
+        background: rgba(255,255,255,0.3);
+    }
+    
+    .sidebar.hidden-mobile {
+        display: none;
+    }
+    
+    .map-wrapper {
+        height: 50vh;
+    }
+    /* calendar rows on narrower screens */
+    .calendar-days {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    /* keep menu items visible even on the smallest screens; they will wrap */
+    .top-menu li:not(.logo) {
+        display: inline-block;
+    }
+    .top-menu .logo {
+        margin-right: 0;
+    }
+    
+    .sidebar {
+        max-height: 40vh;
+        padding: 1rem;
+    }
+    
+    .card {
+        padding: 1rem;
+    }
+    
+    .action-btn {
+        font-size: 0.85rem;
+        padding: 0.5rem;
+    }
+    
+    .map-wrapper {
+        height: 50vh;
+    }
+
+    .sidebar.hidden-mobile ~ .map-wrapper {
+        /* when sidebar is hidden, give map the full height below header */
+        height: calc(100vh - 40px);
+    }
+}

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compass</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="../static/styles.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+</head>
+<body>
+    <!-- top macOS-style menu bar -->
+    <header class="menu">
+        <nav>
+            <ul class="top-menu">
+                <li class="logo">Compass</li>
+                <li><a href="#" id="fileMenu">File</a>
+                    <div id="fileMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="importJsonItem">Import JSON</div>
+                        <div class="menu-item" id="exportJsonItem">Export JSON</div>
+                    </div>
+                </li>
+                <li><a href="#" id="editMenu">Edit</a>
+                    <div id="editMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="clearAllItem">Clear All Points</div>
+                    </div>
+                </li>
+                <li><a href="#" id="organizeMenu">Organize</a>
+                    <div id="organizeMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="organizeDaysItem">Auto-Schedule</div>
+                        <div class="menu-item" id="settingsItem">Settings</div>
+                    </div>
+                </li>
+                <li><a href="/help">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="container">
+        <button id="sidebarToggle" class="sidebar-toggle">☰</button>
+        <!-- left glassy sidebar / apple‑glass UI -->
+        <aside class="sidebar">
+            <div class="card">
+                <div>
+                    <h1>Map Points</h1>
+                    <p>Manage your location markers</p>
+                </div>
+                <div class="form-section">
+                    <h2>Filter by Day</h2>
+                    <div id="calendarDays" class="calendar-days"></div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Add Point</h2>
+                    <input type="text" id="pointName" placeholder="Point name" class="input-field">
+                    <input type="text" id="pointAddress" placeholder="Search address (e.g. 980 Broadway, NYC)" class="input-field">
+                    <input type="number" id="pointDay" placeholder="Day (optional)" min="1" class="input-field">
+                    <button id="addPointBtn" class="action-btn add-btn">+ Add Point</button>
+                </div>
+
+                <div class="form-section">
+                    <h2>Points (<span id="pointCount">0</span>)</h2>
+                    <ul id="pointsList" class="list"></ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- map area; placeholder iframe for API -->
+        <section class="map-wrapper">
+            <div id="map"></div>
+        </section>
+    </div>
+
+    <!-- edit/add modal -->
+    <div id="pointModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="modalTitle">Edit Point</h2>
+            <label>Name:<br><input type="text" id="modalName" class="input-field" placeholder="Point name"></label>
+            <label>Address (search):<br><input type="text" id="modalAddress" class="input-field" placeholder="Type an address"></label>
+            <label>Day (optional):<br><input type="number" id="modalDay" min="1" class="input-field" style="width:4rem;" placeholder="Leave empty for unscheduled"></label>
+            <label>Description:<br><textarea id="modalDescription" class="input-field" placeholder="Add notes" style="resize:vertical;height:60px;"></textarea></label>
+            <label>Photo URL:<br><input type="url" id="modalPhoto" class="input-field" placeholder="https://example.com/photo.jpg"></label>
+            <div style="display:none;">
+                <label>Latitude:<br><input type="number" id="modalLat" step="0.0001" class="input-field"></label>
+                <label>Longitude:<br><input type="number" id="modalLng" step="0.0001" class="input-field"></label>
+            </div>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button id="modalSave" class="action-btn add-btn">Save</button>
+                <button id="modalDelete" class="action-btn" style="background:#ff6b6b;color:#fff;border-color:#ff6b6b;display:none;">Delete</button>
+                <button id="modalCancel" class="action-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h2>Settings</h2>
+            <label>Max Days to Display:<br><input type="number" id="settingsMaxDays" min="1" max="30" value="7" class="input-field"></label>
+            <p style="font-size:0.85rem;color:var(--text-2);margin-top:0.5rem;">Calendar will show up to this many days</p>
+            <div style="margin-top:1.5rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button id="settingsSave" class="action-btn add-btn">Save</button>
+                <button id="settingsCancel" class="action-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import JSON Modal -->
+    <div id="importModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h2>Import JSON</h2>
+            <p style="font-size:0.9rem;color:var(--text-2);">Paste your JSON data below:</p>
+            <textarea id="importJsonText" class="input-field" placeholder="Paste JSON here" style="height:200px;resize:vertical;"></textarea>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button id="importSave" class="action-btn add-btn">Import</button>
+                <button id="importCancel" class="action-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <!-- Socket.IO client -->
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="../static/map_fresh.js"></script>
+</body>
+</html>

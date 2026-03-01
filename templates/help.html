@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compass - Help &amp; Privacy</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="../static/styles.css">
+    <!-- Leaflet CSS only needed on main page, but harmless here -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+</head>
+<body>
+    <header class="menu">
+        <nav>
+            <ul class="top-menu">
+                <li class="logo"><a href="/">Compass</a></li>
+                <li><a href="/">Back</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="container" style="padding-top:40px;">
+        <div class="card">
+            <h1>How to Use Compass Map</h1>
+            <p>This page explains every feature of the Compass Map application.</p>
+            <h2>Adding &amp; Editing Points</h2>
+            <ul>
+                <li>Click on the "Add Point" section in the sidebar to create a new location.</li>
+                <li>You can search for an address (e.g. "980 Broadway, NYC"). The app will geocode it using OpenStreetMap's Nominatim service.</li>
+                <li>Optionally specify a day number; leave blank to mark the point as unscheduled.</li>
+                <li>You may also add a description or a photo URL to make notes about the location.</li>
+                <li>Existing points can be edited by clicking on their entry in the list or by right‑clicking the map marker.</li>
+                <li>Latitude/longitude fields are hidden by default but are preserved when editing. If you change the address the coordinates are re‑geocoded.</li>
+            </ul>
+
+            <h2>Filtering &amp; Calendar</h2>
+            <p>The calendar along the top of the sidebar shows the days up to the "Max Days" setting. Clicking a day filters the map to only show points assigned to that day. Click the same day again to clear the filter.</p>
+
+            <h2>Auto‑Scheduling / Organizer</h2>
+            <p>Use the <strong>Organize &gt; Auto‑Schedule Unscheduled</strong> menu item to automatically assign unscheduled points to days. The algorithm groups points by geographic proximity, so nearby locations are clustered together rather than spread out randomly. You can configure the maximum number of days via <strong>Organize &gt; Settings</strong>.</p>
+            <p><em>Note:</em> the "Max Days" setting is shared across all users and devices. When someone updates it, everyone else will see the calendar adjust in real time.</p>
+
+            <h2>Import &amp; Export</h2>
+            <p>Use the <strong>File</strong> menu to import or export your point list as JSON. Imported data should follow the same structure as the exported file.</p>
+
+            <h2>Mobile &amp; Layout</h2>
+            <p>The sidebar can be toggled using the ☰ button on small screens. The layout is responsive and should work on phones and tablets.</p>
+
+            <h2>Real‑time Sync</h2>
+            <p>Multiple browser windows/tabs and users will see updates instantly thanks to the built‑in Socket.IO synchronization.</p>
+
+            <h1>Privacy Policy - on this app</h1>
+            <p>The Compass Map application stores all data locally on the server in a <code>points.json</code> file. There is
+            no authentication, so anyone with access to the server can view and modify points.</p>
+            <p>Address searches and reverse lookups are performed through the OpenStreetMap
+            <a href="https://nominatim.openstreetmap.org/" target="_blank">Nominatim</a> service. No additional information
+            is sent or stored by Compass beyond the query you enter and the resulting coordinates.</p>
+            <p>When you use the import/export features, the JSON is handled entirely within your
+            browser and the server; it is not forwarded to any third parties.</p>
+            <p>By using the application you agree to the terms above. There is no tracking or
+            advertising.</p>
+            <h1>For the full legal disclaimer, please visit <a href="https://yallisstudio.netlify.app/legal" target="_blank">https://yallisstudio.netlify.app/legal</a></h1>
+        </div>
+    </div>
+</body>
+</html>
