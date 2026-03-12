@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify, request
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO  # type: ignore
 import threading
 import time
 import json
@@ -14,12 +14,10 @@ POINTS_FILE = os.path.join(os.path.dirname(__file__), 'points.json')
 lock = threading.Lock()
 
 def load_points():
-    # legacy support remains; points.json may either be a list or a dict
     data = load_storage()
     return data.get('points', [])
 
 def save_points(points):
-    # preserve any existing settings
     cur = load_storage()
     save_storage(points, cur.get('settings'))
 

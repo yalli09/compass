@@ -11,6 +11,7 @@ let selectedOffset = null; // null = show all
 let socket = null;
 let currentEditing = null;
 let editingPointOriginal = null; // store original coords when editing
+let searchQuery = ''; // search filter query
 
 // ============ MAP INIT ============
 function initMap() {
@@ -164,7 +165,28 @@ function updatePointsList() {
         li.appendChild(info);
         li.appendChild(btn);
         li.style.cursor = 'pointer';
-        li.addEventListener('click', () => showEditModal(point));
+        
+        // Left click: center map on point and show popup
+        li.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Center map on the point
+            if (map) {
+                map.setView([point.lat, point.lng], 16);
+            }
+            // Find and show the marker popup
+            const marker = markers.find(m => m.pointId === point.id);
+            if (marker) {
+                marker.openPopup();
+            }
+        });
+        
+        // Right click: open edit modal
+        li.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showEditModal(point);
+        });
+        
         pointsList.appendChild(li);
     });
 }
@@ -188,7 +210,21 @@ function renderCalendar() {
 }
 
 function applyFilter() {
-    filteredPoints = (selectedOffset === null || selectedOffset <= 0) ? points.slice() : points.filter(p => p.day === selectedOffset);
+    let filtered = (selectedOffset === null || selectedOffset <= 0) ? points.slice() : points.filter(p => p.day === selectedOffset);
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        filtered = filtered.filter(p => {
+            const name = (p.name || '').toLowerCase();
+            const description = (p.description || '').toLowerCase();
+            const streetAddress = (p.address || '').toLowerCase();
+            const id = (p.id || '').toString().toLowerCase();
+            return name.includes(query) || description.includes(query) || streetAddress.includes(query) || id.includes(query);
+        });
+    }
+    
+    filteredPoints = filtered;
     renderPoints(filteredPoints);
     updatePointsList();
     renderCalendar();
@@ -512,6 +548,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Sidebar add button
     const addBtn = document.getElementById('addPointBtn');
     if (addBtn) addBtn.addEventListener('click', addPointFromForm);
+    
+    // Search filter
+    const searchFilter = document.getElementById('searchFilter');
+    if (searchFilter) {
+        searchFilter.addEventListener('input', (e) => {
+            searchQuery = e.target.value;
+            applyFilter();
+        });
+    }
 
     // Modal buttons
     const modalSave = document.getElementById('modalSave');
