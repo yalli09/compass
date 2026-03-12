@@ -12,6 +12,7 @@ let socket = null;
 let currentEditing = null;
 let editingPointOriginal = null; // store original coords when editing
 let searchQuery = ''; // search filter query
+let currentOpenMenu = null; // track which menu is currently open
 
 // ============ MAP INIT ============
 function initMap() {
@@ -46,6 +47,8 @@ function initMap() {
     fetch('/api/points').then(r => r.json()).then(data => {
         points = (data || []).map(convertPoint);
         applyFilter();
+        // Smart map initialization: fit all points in view if they exist
+        fitMapToBounds();
     }).catch(err => console.error('Failed to load points', err));
 
     // load global settings from server
@@ -537,6 +540,17 @@ function closeImportModal() {
 // ============ MENU POPUPS ============
 function closeAllMenus() {
     document.querySelectorAll('.menu-popup').forEach(f => f.classList.add('hidden'));
+    currentOpenMenu = null;
+}
+
+function fitMapToBounds() {
+    if (!map || filteredPoints.length === 0) return;
+    
+    // Create bounds from all filtered points
+    const bounds = L.latLngBounds(filteredPoints.map(p => [p.lat, p.lng]));
+    
+    // Fit map to bounds with padding
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
 }
 
 // ============ INIT ============
@@ -583,9 +597,51 @@ document.addEventListener('DOMContentLoaded', function() {
     const editMenu = document.getElementById('editMenu');
     const organizeMenu = document.getElementById('organizeMenu');
     
-    if (fileMenu) fileMenu.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('fileMenuPopup').classList.toggle('hidden'); });
-    if (editMenu) editMenu.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('editMenuPopup').classList.toggle('hidden'); });
-    if (organizeMenu) organizeMenu.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('organizeMenuPopup').classList.toggle('hidden'); });
+    if (fileMenu) fileMenu.addEventListener('click', (e) => { 
+        e.preventDefault(); 
+        e.stopPropagation();
+        const filePopup = document.getElementById('fileMenuPopup');
+        if (currentOpenMenu === 'file' && !filePopup.classList.contains('hidden')) {
+            // Clicking same menu twice closes it
+            filePopup.classList.add('hidden');
+            currentOpenMenu = null;
+        } else {
+            // Clicking different menu closes others and opens this one
+            closeAllMenus();
+            filePopup.classList.remove('hidden');
+            currentOpenMenu = 'file';
+        }
+    });
+    if (editMenu) editMenu.addEventListener('click', (e) => { 
+        e.preventDefault(); 
+        e.stopPropagation();
+        const editPopup = document.getElementById('editMenuPopup');
+        if (currentOpenMenu === 'edit' && !editPopup.classList.contains('hidden')) {
+            // Clicking same menu twice closes it
+            editPopup.classList.add('hidden');
+            currentOpenMenu = null;
+        } else {
+            // Clicking different menu closes others and opens this one
+            closeAllMenus();
+            editPopup.classList.remove('hidden');
+            currentOpenMenu = 'edit';
+        }
+    });
+    if (organizeMenu) organizeMenu.addEventListener('click', (e) => { 
+        e.preventDefault(); 
+        e.stopPropagation();
+        const organizePopup = document.getElementById('organizeMenuPopup');
+        if (currentOpenMenu === 'organize' && !organizePopup.classList.contains('hidden')) {
+            // Clicking same menu twice closes it
+            organizePopup.classList.add('hidden');
+            currentOpenMenu = null;
+        } else {
+            // Clicking different menu closes others and opens this one
+            closeAllMenus();
+            organizePopup.classList.remove('hidden');
+            currentOpenMenu = 'organize';
+        }
+    });
 
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
