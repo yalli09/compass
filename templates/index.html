@@ -19,11 +19,13 @@
                     <div id="fileMenuPopup" class="menu-popup hidden">
                         <div class="menu-item" id="importJsonItem">Import JSON</div>
                         <div class="menu-item" id="exportJsonItem">Export JSON</div>
+                        <div class="menu-item" id="clearAllItem">Clear All Points</div>
                     </div>
                 </li>
-                <li><a href="#" id="editMenu">Edit</a>
-                    <div id="editMenuPopup" class="menu-popup hidden">
-                        <div class="menu-item" id="clearAllItem">Clear All Points</div>
+                <li><a href="#" id="toolsMenu">Tools</a>
+                    <div id="toolsMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="mapPointsTab">Map Points</div>
+                        <div class="menu-item" id="taskListTab">Task List</div>
                     </div>
                 </li>
                 <li><a href="#" id="organizeMenu">Organize</a>
@@ -42,27 +44,57 @@
         <!-- left glassy sidebar / apple‑glass UI -->
         <aside class="sidebar">
             <div class="card">
-                <div>
-                    <h1>Map Points</h1>
-                    <p>Manage your location markers</p>
-                </div>
-                <div class="form-section">
-                    <h2>Filter by Day</h2>
-                    <div id="calendarDays" class="calendar-days"></div>
+                <!-- Tab Navigation -->
+                <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                    <button class="tab-btn active" data-tab="mapPoints" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-1); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Map Points</button>
+                    <button class="tab-btn" data-tab="taskList" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-2); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Task List</button>
                 </div>
 
-                <div class="form-section">
-                    <h2>Add Point</h2>
-                    <input type="text" id="pointName" placeholder="Point name" class="input-field">
-                    <input type="text" id="pointAddress" placeholder="Search address (e.g. 980 Broadway, NYC)" class="input-field">
-                    <input type="number" id="pointDay" placeholder="Day (optional)" min="1" class="input-field">
-                    <button id="addPointBtn" class="action-btn add-btn">+ Add Point</button>
+                <!-- Map Points Tab -->
+                <div id="mapPoints" class="tab-content active">
+                    <div>
+                        <h1>Map Points</h1>
+                        <p>Manage your location markers</p>
+                    </div>
+                    <div class="form-section">
+                        <h2>Filter by Day</h2>
+                        <div id="calendarDays" class="calendar-days"></div>
+                    </div>
+
+                    <div class="form-section">
+                        <h2>Add Point</h2>
+                        <input type="text" id="pointName" placeholder="Point name" class="input-field">
+                        <input type="text" id="pointAddress" placeholder="Search address (e.g. 980 Broadway, NYC)" class="input-field">
+                        <input type="number" id="pointDay" placeholder="Day (optional)" min="1" class="input-field">
+                        <textarea id="pointDescription" placeholder="Description (optional)" class="input-field" style="resize:vertical;height:60px;"></textarea>
+                        <input type="url" id="pointPhoto" placeholder="Photo URL (optional)" class="input-field">
+                        <button id="addPointBtn" class="action-btn add-btn">+ Add Point</button>
+                    </div>
+
+                    <div class="form-section">
+                        <h2>Points (<span id="pointCount">0</span>)</h2>
+                        <input type="text" id="searchFilter" placeholder="Search points..." class="input-field">
+                        <ul id="pointsList" class="list"></ul>
+                    </div>
                 </div>
 
-                <div class="form-section">
-                    <h2>Points (<span id="pointCount">0</span>)</h2>
-                    <input type="text" id="searchFilter" placeholder="Search points..." class="input-field">
-                    <ul id="pointsList" class="list"></ul>
+                <!-- Task List Tab -->
+                <div id="taskList" class="tab-content hidden">
+                    <div>
+                        <h1>Task List</h1>
+                        <p>Organize your tasks and deadlines</p>
+                    </div>
+                    <div class="form-section">
+                        <h2>Add Task</h2>
+                        <input type="text" id="taskTitle" placeholder="Task title" class="input-field">
+                        <input type="date" id="taskDueDate" class="input-field">
+                        <button id="addTaskBtn" class="action-btn add-btn">+ Add Task</button>
+                    </div>
+
+                    <div class="form-section">
+                        <h2>Tasks (<span id="taskCount">0</span>)</h2>
+                        <ul id="tasksList" class="list"></ul>
+                    </div>
                 </div>
             </div>
         </aside>

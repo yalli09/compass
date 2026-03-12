@@ -5,6 +5,7 @@ let map;
 let markers = [];
 let points = [];
 let filteredPoints = [];
+let tasks = [];
 
 let maxDays = localStorage.getItem('maxDays') ? parseInt(localStorage.getItem('maxDays')) : 7;
 let selectedOffset = null; // null = show all
@@ -13,6 +14,7 @@ let currentEditing = null;
 let editingPointOriginal = null; // store original coords when editing
 let searchQuery = ''; // search filter query
 let currentOpenMenu = null; // track which menu is currently open
+let currentTab = 'mapPoints'; // track current tab
 
 // ============ MAP INIT ============
 function initMap() {
@@ -33,6 +35,10 @@ function initMap() {
         socket.on('points_updated', (data) => {
             points = (data || []).map(convertPoint);
             applyFilter();
+        });
+        socket.on('tasks_updated', (data) => {
+            tasks = data || [];
+            updateTasksList();
         });
         socket.on('settings_updated', (s) => {
             if (s && typeof s.maxDays === 'number') {
@@ -59,6 +65,12 @@ function initMap() {
             renderCalendar();
         }
     }).catch(err => console.error('Failed to load settings', err));
+
+    // load tasks from server
+    fetch('/api/tasks').then(r => r.json()).then(data => {
+        tasks = data || [];
+        updateTasksList();
+    }).catch(err => console.error('Failed to load tasks', err));
 
     map.on('contextmenu', onMapContextMenu);
 }
@@ -275,6 +287,8 @@ async function addPointFromForm() {
     const name = document.getElementById('pointName').value.trim();
     const address = document.getElementById('pointAddress').value.trim();
     const dayVal = document.getElementById('pointDay').value.trim();
+    const description = document.getElementById('pointDescription').value.trim();
+    const photo = document.getElementById('pointPhoto').value.trim();
 
     if (!name || !address) {
         alert('Please enter a point name and address');
@@ -298,8 +312,8 @@ async function addPointFromForm() {
             lat: geocoded.lat,
             lng: geocoded.lng,
             day,
-            description: '',
-            photo: ''
+            description,
+            photo
         };
 
         const res = await fetch('/api/points', {
@@ -313,6 +327,8 @@ async function addPointFromForm() {
         document.getElementById('pointName').value = '';
         document.getElementById('pointAddress').value = '';
         document.getElementById('pointDay').value = '';
+        document.getElementById('pointDescription').value = '';
+        document.getElementById('pointPhoto').value = '';
         alert('Point added!');
     } catch (err) {
         console.error(err);
@@ -553,15 +569,175 @@ function fitMapToBounds() {
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
 }
 
+// ============ TAB SYSTEM ============
+function switchTab(tabName) {
+    currentTab = tabName;
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.add('hidden');
+        if (tab.classList.contains('active')) tab.classList.remove('active');
+    });
+    // Show selected tab
+    const selectedTab = document.getElementById(tabName);
+    if (selectedTab) {
+        selectedTab.classList.remove('hidden');
+        selectedTab.classList.add('active');
+    }
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        btn.style.color = 'var(--text-2)';
+        btn.style.borderBottom = '2px solid transparent';
+    });
+    const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+        activeBtn.style.color = 'var(--text-1)';
+        activeBtn.style.borderBottom = '2px solid var(--accent-color)';
+    }
+    
+    // Invalidate map size if switching from hidden state
+    if (tabName === 'mapPoints' && map) {
+        setTimeout(() => map.invalidateSize(), 100);
+    }
+}
+
+// ============ TASK LIST FUNCTIONS ============
+async function addTaskFromForm() {
+    const title = document.getElementById('taskTitle').value.trim();
+    const dueDate = document.getElementById('taskDueDate').value;
+
+    if (!title) {
+        alert('Please enter a task title');
+        return;
+    }
+
+    const payload = {
+        title,
+        dueDate: dueDate || null
+    };
+
+    try {
+        const res = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error('Failed to add task');
+
+        document.getElementById('taskTitle').value = '';
+        document.getElementById('taskDueDate').value = '';
+    } catch (err) {
+        console.error(err);
+        alert('Error adding task');
+    }
+}
+
+function removeTask(id) {
+    fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+        .catch(err => console.error('Error removing task', err));
+}
+
+function toggleTaskComplete(id) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    const payload = { completed: !task.completed };
+    fetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .catch(err => console.error('Error updating task', err));
+}
+
+function updateTasksList() {
+    const tasksList = document.getElementById('tasksList');
+    const taskCount = document.getElementById('taskCount');
+    tasksList.innerHTML = '';
+    taskCount.textContent = tasks.length;
+
+    tasks.forEach(task => {
+        const li = document.createElement('li');
+        li.style.display = 'flex';
+        li.style.alignItems = 'center';
+        li.style.justifyContent = 'space-between';
+        li.style.padding = '12px';
+        li.style.backgroundColor = task.completed ? 'var(--input-bg)' : 'transparent';
+        li.style.borderRadius = '8px';
+        li.style.marginBottom = '8px';
+
+        const content = document.createElement('div');
+        content.style.flex = '1';
+        content.style.display = 'flex';
+        content.style.alignItems = 'center';
+        content.style.gap = '12px';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = task.completed;
+        checkbox.style.width = '18px';
+        checkbox.style.height = '18px';
+        checkbox.style.cursor = 'pointer';
+        checkbox.addEventListener('change', () => toggleTaskComplete(task.id));
+
+        const info = document.createElement('div');
+        info.style.flex = '1';
+
+        const title = document.createElement('div');
+        title.textContent = task.title;
+        title.style.fontWeight = '500';
+        title.style.color = task.completed ? 'var(--text-3)' : 'var(--text-1)';
+        title.style.textDecoration = task.completed ? 'line-through' : 'none';
+
+        const dueDate = document.createElement('div');
+        if (task.dueDate) {
+            const date = new Date(task.dueDate);
+            dueDate.textContent = date.toLocaleDateString();
+            dueDate.style.fontSize = '0.85rem';
+            dueDate.style.color = 'var(--text-3)';
+            dueDate.style.marginTop = '4px';
+        }
+
+        info.appendChild(title);
+        if (task.dueDate) info.appendChild(dueDate);
+
+        const btn = document.createElement('button');
+        btn.className = 'remove-btn';
+        btn.textContent = '×';
+        btn.style.padding = '4px 8px';
+        btn.addEventListener('click', () => removeTask(task.id));
+
+        content.appendChild(checkbox);
+        content.appendChild(info);
+        li.appendChild(content);
+        li.appendChild(btn);
+        tasksList.appendChild(li);
+    });
+}
+
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', function() {
     initMap();
     renderCalendar();
     applyFilter();
+    updateTasksList();
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            switchTab(btn.dataset.tab);
+        });
+    });
 
     // Sidebar add button
     const addBtn = document.getElementById('addPointBtn');
     if (addBtn) addBtn.addEventListener('click', addPointFromForm);
+
+    // Task list add button
+    const addTaskBtn = document.getElementById('addTaskBtn');
+    if (addTaskBtn) addTaskBtn.addEventListener('click', addTaskFromForm);
     
     // Search filter
     const searchFilter = document.getElementById('searchFilter');
@@ -594,7 +770,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Menu items (from top menu bar)
     const fileMenu = document.getElementById('fileMenu');
-    const editMenu = document.getElementById('editMenu');
+    const toolsMenu = document.getElementById('toolsMenu');
     const organizeMenu = document.getElementById('organizeMenu');
     
     if (fileMenu) fileMenu.addEventListener('click', (e) => { 
@@ -602,29 +778,25 @@ document.addEventListener('DOMContentLoaded', function() {
         e.stopPropagation();
         const filePopup = document.getElementById('fileMenuPopup');
         if (currentOpenMenu === 'file' && !filePopup.classList.contains('hidden')) {
-            // Clicking same menu twice closes it
             filePopup.classList.add('hidden');
             currentOpenMenu = null;
         } else {
-            // Clicking different menu closes others and opens this one
             closeAllMenus();
             filePopup.classList.remove('hidden');
             currentOpenMenu = 'file';
         }
     });
-    if (editMenu) editMenu.addEventListener('click', (e) => { 
+    if (toolsMenu) toolsMenu.addEventListener('click', (e) => { 
         e.preventDefault(); 
         e.stopPropagation();
-        const editPopup = document.getElementById('editMenuPopup');
-        if (currentOpenMenu === 'edit' && !editPopup.classList.contains('hidden')) {
-            // Clicking same menu twice closes it
-            editPopup.classList.add('hidden');
+        const toolsPopup = document.getElementById('toolsMenuPopup');
+        if (currentOpenMenu === 'tools' && !toolsPopup.classList.contains('hidden')) {
+            toolsPopup.classList.add('hidden');
             currentOpenMenu = null;
         } else {
-            // Clicking different menu closes others and opens this one
             closeAllMenus();
-            editPopup.classList.remove('hidden');
-            currentOpenMenu = 'edit';
+            toolsPopup.classList.remove('hidden');
+            currentOpenMenu = 'tools';
         }
     });
     if (organizeMenu) organizeMenu.addEventListener('click', (e) => { 
@@ -632,11 +804,9 @@ document.addEventListener('DOMContentLoaded', function() {
         e.stopPropagation();
         const organizePopup = document.getElementById('organizeMenuPopup');
         if (currentOpenMenu === 'organize' && !organizePopup.classList.contains('hidden')) {
-            // Clicking same menu twice closes it
             organizePopup.classList.add('hidden');
             currentOpenMenu = null;
         } else {
-            // Clicking different menu closes others and opens this one
             closeAllMenus();
             organizePopup.classList.remove('hidden');
             currentOpenMenu = 'organize';
@@ -646,12 +816,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
     const clearAllItem = document.getElementById('clearAllItem');
+    const mapPointsTab = document.getElementById('mapPointsTab');
+    const taskListTab = document.getElementById('taskListTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
     const settingsItem = document.getElementById('settingsItem');
 
     if (exportJsonItem) exportJsonItem.addEventListener('click', downloadJSON);
     if (importJsonItem) importJsonItem.addEventListener('click', openImportModal);
     if (clearAllItem) clearAllItem.addEventListener('click', clearAllPoints);
+    if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
+    if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
     if (organizeDaysItem) organizeDaysItem.addEventListener('click', organizeDays);
     if (settingsItem) settingsItem.addEventListener('click', openModalSettings);
 

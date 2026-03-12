@@ -6,8 +6,187 @@
     <title>Compass - Help &amp; Privacy</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="../static/styles.css">
-    <!-- Leaflet CSS only needed on main page, but harmless here -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <style>
+        .help-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .help-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 40px 30px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .help-card h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: var(--text-1);
+            font-weight: 600;
+        }
+
+        .help-card h2 {
+            font-size: 1.5rem;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            color: var(--text-1);
+            font-weight: 600;
+        }
+
+        .help-card h2:first-of-type {
+            margin-top: 20px;
+        }
+
+        .help-card p {
+            line-height: 1.8;
+            color: var(--text-2);
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+
+        .help-card ul {
+            list-style: none;
+            padding: 0;
+            margin-bottom: 20px;
+        }
+
+        .help-card li {
+            margin-bottom: 12px;
+            padding-left: 24px;
+            position: relative;
+            color: var(--text-2);
+            line-height: 1.7;
+            font-size: 1rem;
+        }
+
+        .help-card li:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        .help-card em {
+            color: var(--text-3);
+            font-style: italic;
+        }
+
+        .help-card code {
+            background: var(--input-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            color: var(--accent-color);
+            font-size: 0.95rem;
+        }
+
+        .help-card a {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-weight: 500;
+            transition: opacity 0.2s ease;
+        }
+
+        .help-card a:hover {
+            opacity: 0.8;
+            text-decoration: underline;
+        }
+
+        .section-divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 40px 0;
+        }
+
+        .legal-notice {
+            background: var(--input-bg);
+            border-left: 4px solid var(--accent-color);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            font-size: 0.95rem;
+        }
+
+        .legal-notice h3 {
+            margin-top: 0;
+            color: var(--text-1);
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .help-container {
+                padding: 15px;
+            }
+
+            .help-card {
+                padding: 25px 20px;
+            }
+
+            .help-card h1 {
+                font-size: 1.5rem;
+            }
+
+            .help-card h2 {
+                font-size: 1.2rem;
+                margin-top: 25px;
+            }
+
+            .help-card p,
+            .help-card li {
+                font-size: 0.95rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .help-container {
+                padding: 12px;
+            }
+
+            .help-card {
+                padding: 20px 15px;
+                border-radius: 10px;
+            }
+
+            .help-card h1 {
+                font-size: 1.3rem;
+                margin-bottom: 8px;
+            }
+
+            .help-card h2 {
+                font-size: 1.1rem;
+                margin-top: 20px;
+                margin-bottom: 12px;
+            }
+
+            .help-card p,
+            .help-card li {
+                font-size: 0.9rem;
+                line-height: 1.6;
+            }
+
+            .section-divider {
+                margin: 30px 0;
+            }
+
+            .legal-notice {
+                padding: 15px;
+                font-size: 0.9rem;
+            }
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .help-card {
+                background: var(--card-bg);
+            }
+        }
+    </style>
 </head>
 <body>
     <header class="menu">
@@ -19,47 +198,76 @@
         </nav>
     </header>
 
-    <div class="container" style="padding-top:40px;">
-        <div class="card">
+    <div class="help-container">
+        <div class="help-card">
             <h1>How to Use Compass Map</h1>
             <p>This page explains every feature of the Compass Map application.</p>
+
+            <div class="section-divider"></div>
+
             <h2>Adding &amp; Editing Points</h2>
             <ul>
-                <li>Click on the "Add Point" section in the sidebar to create a new location.</li>
-                <li>You can search for an address (e.g. "980 Broadway, NYC"). The app will geocode it using OpenStreetMap's Nominatim service.</li>
-                <li>Optionally specify a day number; leave blank to mark the point as unscheduled.</li>
-                <li>You may also add a description or a photo URL to make notes about the location.</li>
-                <li>Existing points can be edited by clicking on their entry in the list or by right‑clicking the map marker.</li>
+                <li>Click on the <strong>Add Point</strong> section in the <strong>Map Points</strong> tab to create a new location.</li>
+                <li>Enter a <strong>point name</strong> and search for an address (e.g. "980 Broadway, NYC"). The app will geocode it using OpenStreetMap's Nominatim service.</li>
+                <li>Optionally specify a <strong>day number</strong>; leave blank to mark the point as unscheduled.</li>
+                <li>Add a <strong>description</strong> to make notes about the location and a <strong>photo URL</strong> to attach an image.</li>
+                <li>Existing points can be edited by clicking on their entry in the list or by <strong>right‑clicking the map marker</strong>.</li>
                 <li>Latitude/longitude fields are hidden by default but are preserved when editing. If you change the address the coordinates are re‑geocoded.</li>
             </ul>
 
-            <h2>Filtering &amp; Calendar</h2>
-            <p>The calendar along the top of the sidebar shows the days up to the "Max Days" setting. Clicking a day filters the map to only show points assigned to that day. Click the same day again to clear the filter.</p>
+            <h2>Search &amp; Filter Points</h2>
+            <ul>
+                <li>Use the search bar above the points list to find locations by name, description, address, or ID.</li>
+                <li><strong>Left-click</strong> any point in the list to center the map on it and view its details.</li>
+                <li><strong>Right-click</strong> any point in the list to open the edit modal.</li>
+                <li>The × button removes a point from the list.</li>
+            </ul>
+
+            <h2>Calendar &amp; Day Filtering</h2>
+            <p>The calendar along the top of the sidebar shows the days up to the <strong>Max Days</strong> setting. Clicking a day filters the map to only show points assigned to that day. Click the same day again to clear the filter.</p>
+
+            <h2>Smart Map Display</h2>
+            <ul>
+                <li>When you first open Compass, the map automatically zooms to display all your points in a perfect fit.</li>
+                <li>When filtering by day or searching, the map updates to show only matching points.</li>
+                <li>In collaborative sessions, adding new points doesn't reset your current map view—work undisturbed!</li>
+            </ul>
+
+            <h2>Task List</h2>
+            <p>Switch to the <strong>Task List</strong> tab to manage your to-do items and deadlines. Features include:</p>
+            <ul>
+                <li>Create a new task with a title and optional due date.</li>
+                <li>Check off tasks as you complete them (they'll appear with strikethrough text).</li>
+                <li>View all your tasks organized with their due dates.</li>
+                <li>Delete tasks you no longer need.</li>
+                <li>All tasks are synced in real-time across all users and devices using Socket.IO.</li>
+            </ul>
 
             <h2>Auto‑Scheduling / Organizer</h2>
-            <p>Use the <strong>Organize &gt; Auto‑Schedule Unscheduled</strong> menu item to automatically assign unscheduled points to days. The algorithm groups points by geographic proximity, so nearby locations are clustered together rather than spread out randomly. You can configure the maximum number of days via <strong>Organize &gt; Settings</strong>.</p>
-            <p><em>Note:</em> the "Max Days" setting is shared across all users and devices. When someone updates it, everyone else will see the calendar adjust in real time.</p>
+            <p>Use the <strong>Organize &gt; Auto‑Schedule</strong> menu item to automatically assign unscheduled points to days. The algorithm groups points by geographic proximity, so nearby locations are clustered together rather than spread out randomly. You can configure the maximum number of days via <strong>Organize &gt; Settings</strong>.</p>
+            <p><em>Note:</em> The <strong>Max Days</strong> setting is shared across all users and devices. When someone updates it, everyone sees the calendar adjust in real time.</p>
 
             <h2>Import &amp; Export</h2>
-            <p>Use the <strong>File</strong> menu to import or export your point list as JSON. Imported data should follow the same structure as the exported file.</p>
+            <p>Use the <strong>File</strong> menu to import or export your point list as JSON, or clear all points. Imported data should follow the same structure as the exported file. This makes it easy to backup, share, or migrate your location data.</p>
 
             <h2>Mobile &amp; Layout</h2>
-            <p>The sidebar can be toggled using the ☰ button on small screens. The layout is responsive and should work on phones and tablets.</p>
+            <p>The sidebar can be toggled using the ☰ button on small screens. The layout is fully responsive and optimized for phones, tablets, and desktops. Use the <strong>Tools</strong> menu to switch between <strong>Map Points</strong> and <strong>Task List</strong> tabs.</p>
 
             <h2>Real‑time Sync</h2>
-            <p>Multiple browser windows/tabs and users will see updates instantly thanks to the built‑in Socket.IO synchronization.</p>
+            <p>Multiple browser windows, tabs, and users will see updates instantly thanks to the built‑in Socket.IO synchronization. Both map points and tasks are synced in real-time, so changes made by any user appear immediately for everyone.</p>
 
-            <h1>Privacy Policy - on this app</h1>
-            <p>The Compass Map application stores all data locally on the server in a <code>points.json</code> file. There is
-            no authentication, so anyone with access to the server can view and modify points.</p>
-            <p>Address searches and reverse lookups are performed through the OpenStreetMap
-            <a href="https://nominatim.openstreetmap.org/" target="_blank">Nominatim</a> service. No additional information
-            is sent or stored by Compass beyond the query you enter and the resulting coordinates.</p>
-            <p>When you use the import/export features, the JSON is handled entirely within your
-            browser and the server; it is not forwarded to any third parties.</p>
-            <p>By using the application you agree to the terms above. There is no tracking or
-            advertising.</p>
-            <h1>For the full legal disclaimer, please visit <a href="https://yallisstudio.netlify.app/legal" target="_blank">https://yallisstudio.netlify.app/legal</a></h1>
+            <div class="section-divider"></div>
+
+            <h1>Privacy Policy</h1>
+            <p>The Compass Map application stores all data locally on the server in a <code>points.json</code> file. There is no authentication, so anyone with access to the server can view and modify points.</p>
+            <p>Address searches and reverse lookups are performed through the OpenStreetMap <a href="https://nominatim.openstreetmap.org/" target="_blank">Nominatim</a> service. No additional information is sent or stored by Compass beyond the query you enter and the resulting coordinates.</p>
+            <p>When you use the import/export features, the JSON is handled entirely within your browser and the server; it is not forwarded to any third parties.</p>
+            <p>By using the application you agree to the terms above. There is no tracking or advertising.</p>
+
+            <div class="legal-notice">
+                <h3>Full Legal Disclaimer</h3>
+                <p>For complete legal information, please visit <a href="https://yallisstudio.netlify.app/legal" target="_blank">https://yallisstudio.netlify.app/legal</a></p>
+            </div>
         </div>
     </div>
 </body>

@@ -11,6 +11,7 @@ app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
 socketio = SocketIO(app, cors_allowed_origins='*')
 
 POINTS_FILE = os.path.join(os.path.dirname(__file__), 'points.json')
+TASKS_FILE = os.path.join(os.path.dirname(__file__), 'tasks.json')
 lock = threading.Lock()
 
 def load_points():
@@ -68,6 +69,25 @@ def load_settings():
 def save_settings(settings):
     pts = load_storage().get('points', [])
     save_storage(pts, settings)
+
+
+# ============ TASKS MANAGEMENT ============
+def load_tasks():
+    """Load tasks from disk. Returns a list of task objects."""
+    if not os.path.exists(TASKS_FILE):
+        return []
+    with open(TASKS_FILE, 'r', encoding='utf-8') as f:
+        try:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+
+def save_tasks(tasks):
+    """Save tasks to disk."""
+    with open(TASKS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(tasks, f, indent=2)
 
 
 def cluster_points_by_distance(points, num_clusters):
@@ -305,11 +325,86 @@ def api_organize_days():
     socketio.emit('points_updated', points)
     return jsonify({'status': 'organized', 'clusters': num_clusters, 'points': len(unscheduled)})
 
+# ============ TASKS API ENDPOINTS ============
+@app.route('/api/tasks', methods=['GET'])
+def api_get_tasks():
+    """Retrieve all tasks."""
+    tasks = load_tasks()
+    return jsonify(tasks)
+
+@app.route('/api/tasks', methods=['POST'])
+def api_add_task():
+    """Create a new task."""
+    data = request.get_json() or {}
+    title = data.get('title')
+    
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    
+    with lock:
+        tasks = load_tasks()
+        task = {
+            'id': int(time.time() * 1000),
+            'title': title,
+            'dueDate': data.get('dueDate'),
+            'completed': False,
+            'created': time.time()
+        }
+        tasks.append(task)
+        save_tasks(tasks)
+    
+    socketio.emit('tasks_updated', tasks)
+    return jsonify(task), 201
+
+@app.route('/api/tasks/<int:tid>', methods=['PUT'])
+def api_update_task(tid):
+    """Update a task."""
+    data = request.get_json() or {}
+    
+    with lock:
+        tasks = load_tasks()
+        updated = False
+        for t in tasks:
+            if t.get('id') == tid:
+                if 'title' in data:
+                    t['title'] = data['title']
+                if 'dueDate' in data:
+                    t['dueDate'] = data['dueDate']
+                if 'completed' in data:
+                    t['completed'] = bool(data['completed'])
+                updated = True
+                break
+        
+        if not updated:
+            return jsonify({'error': 'not found'}), 404
+        
+        save_tasks(tasks)
+    
+    socketio.emit('tasks_updated', tasks)
+    return jsonify({'status': 'updated'})
+
+@app.route('/api/tasks/<int:tid>', methods=['DELETE'])
+def api_delete_task(tid):
+    """Delete a task."""
+    with lock:
+        tasks = load_tasks()
+        new_tasks = [t for t in tasks if t.get('id') != tid]
+        
+        if len(new_tasks) == len(tasks):
+            return jsonify({'error': 'not found'}), 404
+        
+        save_tasks(new_tasks)
+    
+    socketio.emit('tasks_updated', new_tasks)
+    return jsonify({'status': 'deleted'})
+
 @socketio.on('connect')
 def handle_connect():
-    # send current points to newly connected client
+    # send current points and tasks to newly connected client
     points = load_points()
+    tasks = load_tasks()
     socketio.emit('points_updated', points)
+    socketio.emit('tasks_updated', tasks)
 
 if __name__ == '__main__':
     # Use socketio.run for real-time support
