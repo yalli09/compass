@@ -22,16 +22,16 @@
                         <div class="menu-item" id="clearAllItem">Clear All Points</div>
                     </div>
                 </li>
-                <li><a href="#" id="toolsMenu">Tools</a>
-                    <div id="toolsMenuPopup" class="menu-popup hidden">
-                        <div class="menu-item" id="mapPointsTab">Map Points</div>
-                        <div class="menu-item" id="taskListTab">Task List</div>
-                    </div>
-                </li>
                 <li><a href="#" id="organizeMenu">Organize</a>
                     <div id="organizeMenuPopup" class="menu-popup hidden">
                         <div class="menu-item" id="organizeDaysItem">Auto-Schedule</div>
                         <div class="menu-item" id="settingsItem">Settings</div>
+                    </div>
+                </li>
+                <li><a href="#" id="toolsMenu">Tools</a>
+                    <div id="toolsMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="mapPointsTab">Map Points</div>
+                        <div class="menu-item" id="taskListTab">Task List</div>
                     </div>
                 </li>
                 <li><a href="/help">Help</a></li>
@@ -148,6 +148,18 @@
             <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
                 <button id="importSave" class="action-btn add-btn">Import</button>
                 <button id="importCancel" class="action-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 350px;">
+            <h2 id="confirmationTitle">Confirm Action</h2>
+            <p id="confirmationMessage" style="margin: 1rem 0; color: var(--text-1);">Do you wish to delete this item?</p>
+            <div style="margin-top:1.5rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button id="confirmationYes" class="action-btn" style="background:#ff6b6b;color:#fff;border-color:#ff6b6b;">Yes</button>
+                <button id="confirmationNo" class="action-btn">No</button>
             </div>
         </div>
     </div>

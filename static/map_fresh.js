@@ -16,6 +16,55 @@ let searchQuery = ''; // search filter query
 let currentOpenMenu = null; // track which menu is currently open
 let currentTab = 'mapPoints'; // track current tab
 
+// ============ CONFIRMATION MODAL ============
+let confirmationCallback = null;
+
+function showConfirmation(message, onYes, onNo = null) {
+    const modal = document.getElementById('confirmationModal');
+    const msgEl = document.getElementById('confirmationMessage');
+    const yesBtn = document.getElementById('confirmationYes');
+    const noBtn = document.getElementById('confirmationNo');
+
+    msgEl.textContent = message;
+    confirmationCallback = onYes;
+
+    const handleYes = () => {
+        if (confirmationCallback) confirmationCallback();
+        hideConfirmation();
+    };
+
+    const handleNo = () => {
+        if (onNo) onNo();
+        hideConfirmation();
+    };
+
+    const handleKeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleYes();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            handleNo();
+        }
+    };
+
+    yesBtn.onclick = handleYes;
+    noBtn.onclick = handleNo;
+    document.addEventListener('keydown', handleKeydown);
+
+    modal.classList.remove('hidden');
+
+    // Focus the no button for accessibility
+    noBtn.focus();
+}
+
+function hideConfirmation() {
+    const modal = document.getElementById('confirmationModal');
+    modal.classList.add('hidden');
+    confirmationCallback = null;
+    document.removeEventListener('keydown', () => {});
+}
+
 // ============ MAP INIT ============
 function initMap() {
     map = L.map('map', { 
@@ -248,11 +297,33 @@ function applyFilter() {
 // ============ MODAL LOGIC ============
 function openModal(title) {
     document.getElementById('modalTitle').textContent = title;
-    document.getElementById('pointModal').classList.remove('hidden');
+    const modal = document.getElementById('pointModal');
+    modal.classList.remove('hidden');
+
+    const handleKeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            // Prevent Enter from submitting if user is in textarea and holding shift
+            const activeElement = document.activeElement;
+            if (activeElement.tagName === 'TEXTAREA' && e.shiftKey) return;
+            e.preventDefault();
+            saveModalPoint();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModal();
+        }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    modal._keydownHandler = handleKeydown; // Store for cleanup
 }
 
 function closeModal() {
-    document.getElementById('pointModal').classList.add('hidden');
+    const modal = document.getElementById('pointModal');
+    modal.classList.add('hidden');
+    if (modal._keydownHandler) {
+        document.removeEventListener('keydown', modal._keydownHandler);
+        modal._keydownHandler = null;
+    }
     currentEditing = null;
 }
 
@@ -415,9 +486,10 @@ async function saveModalPoint() {
 
 function deleteModalPoint() {
     if (!currentEditing) return;
-    if (!confirm('Delete this point?')) return;
-    removePoint(currentEditing);
-    closeModal();
+    showConfirmation('Do you wish to delete this point?', () => {
+        removePoint(currentEditing);
+        closeModal();
+    });
 }
 
 // ============ MAP INTERACTION ============
@@ -516,13 +588,32 @@ function organizeDays() {
 
 // ============ SETTINGS ============
 function openModalSettings() {
-    document.getElementById('settingsModal').classList.remove('hidden');
+    const modal = document.getElementById('settingsModal');
+    modal.classList.remove('hidden');
     document.getElementById('settingsMaxDays').value = maxDays;
     closeAllMenus();
+
+    const handleKeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveSettings();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModalSettings();
+        }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    modal._keydownHandler = handleKeydown;
 }
 
 function closeModalSettings() {
-    document.getElementById('settingsModal').classList.add('hidden');
+    const modal = document.getElementById('settingsModal');
+    modal.classList.add('hidden');
+    if (modal._keydownHandler) {
+        document.removeEventListener('keydown', modal._keydownHandler);
+        modal._keydownHandler = null;
+    }
 }
 
 function saveSettings() {
@@ -544,13 +635,31 @@ function saveSettings() {
 }
 
 function openImportModal() {
-    document.getElementById('importModal').classList.remove('hidden');
+    const modal = document.getElementById('importModal');
+    modal.classList.remove('hidden');
     document.getElementById('importJsonText').value = '';
     closeAllMenus();
+
+    const handleKeydown = (e) => {
+        if (e.key === 'Enter' && e.ctrlKey) {
+            // Ctrl+Enter to import (since textarea might have multiple lines)
+            importJson();
+        } else if (e.key === 'Escape') {
+            closeImportModal();
+        }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    modal._keydownHandler = handleKeydown;
 }
 
 function closeImportModal() {
-    document.getElementById('importModal').classList.add('hidden');
+    const modal = document.getElementById('importModal');
+    modal.classList.add('hidden');
+    if (modal._keydownHandler) {
+        document.removeEventListener('keydown', modal._keydownHandler);
+        modal._keydownHandler = null;
+    }
 }
 
 // ============ MENU POPUPS ============
@@ -707,7 +816,9 @@ function updateTasksList() {
         btn.className = 'remove-btn';
         btn.textContent = '×';
         btn.style.padding = '4px 8px';
-        btn.addEventListener('click', () => removeTask(task.id));
+        btn.addEventListener('click', () => {
+            showConfirmation('Do you wish to delete this task?', () => removeTask(task.id));
+        });
 
         content.appendChild(checkbox);
         content.appendChild(info);
@@ -724,6 +835,29 @@ document.addEventListener('DOMContentLoaded', function() {
     applyFilter();
     updateTasksList();
 
+    // Global keyboard handler for menus
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault(); // Prevent browser default behavior (focus outlines, etc.)
+            // Close any open menus
+            if (currentOpenMenu) {
+                closeAllMenus();
+                return;
+            }
+            // Close any open modals
+            const openModals = document.querySelectorAll('.modal:not(.hidden)');
+            if (openModals.length > 0) {
+                openModals.forEach(modal => {
+                    if (modal.id === 'pointModal') closeModal();
+                    else if (modal.id === 'settingsModal') closeModalSettings();
+                    else if (modal.id === 'importModal') closeImportModal();
+                    else if (modal.id === 'confirmationModal') hideConfirmation();
+                });
+                return;
+            }
+        }
+    });
+
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -735,9 +869,45 @@ document.addEventListener('DOMContentLoaded', function() {
     const addBtn = document.getElementById('addPointBtn');
     if (addBtn) addBtn.addEventListener('click', addPointFromForm);
 
+    // Add keyboard support for point form
+    const pointNameInput = document.getElementById('pointName');
+    const pointAddressInput = document.getElementById('pointAddress');
+    const pointDayInput = document.getElementById('pointDay');
+    const pointDescriptionTextarea = document.getElementById('pointDescription');
+    const pointPhotoInput = document.getElementById('pointPhoto');
+
+    const handlePointFormKeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            // Allow Shift+Enter in textarea for new lines
+            if (e.target === pointDescriptionTextarea && e.shiftKey) return;
+            e.preventDefault();
+            addPointFromForm();
+        }
+    };
+
+    if (pointNameInput) pointNameInput.addEventListener('keydown', handlePointFormKeydown);
+    if (pointAddressInput) pointAddressInput.addEventListener('keydown', handlePointFormKeydown);
+    if (pointDayInput) pointDayInput.addEventListener('keydown', handlePointFormKeydown);
+    if (pointDescriptionTextarea) pointDescriptionTextarea.addEventListener('keydown', handlePointFormKeydown);
+    if (pointPhotoInput) pointPhotoInput.addEventListener('keydown', handlePointFormKeydown);
+
     // Task list add button
     const addTaskBtn = document.getElementById('addTaskBtn');
     if (addTaskBtn) addTaskBtn.addEventListener('click', addTaskFromForm);
+
+    // Add keyboard support for task form
+    const taskTitleInput = document.getElementById('taskTitle');
+    const taskDueDateInput = document.getElementById('taskDueDate');
+
+    const handleTaskFormKeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addTaskFromForm();
+        }
+    };
+
+    if (taskTitleInput) taskTitleInput.addEventListener('keydown', handleTaskFormKeydown);
+    if (taskDueDateInput) taskDueDateInput.addEventListener('keydown', handleTaskFormKeydown);
     
     // Search filter
     const searchFilter = document.getElementById('searchFilter');
