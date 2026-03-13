@@ -16,6 +16,28 @@ let searchQuery = ''; // search filter query
 let currentOpenMenu = null; // track which menu is currently open
 let currentTab = 'mapPoints'; // track current tab
 
+// ============ TOAST NOTIFICATIONS ============
+function showToast(message, type = 'info', duration = 1000) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    // Trigger animation
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    // Remove after duration
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (container.contains(toast)) {
+                container.removeChild(toast);
+            }
+        }, 300); // Wait for transition
+    }, duration);
+}
+
 // ============ CONFIRMATION MODAL ============
 let confirmationCallback = null;
 
@@ -362,7 +384,7 @@ async function addPointFromForm() {
     const photo = document.getElementById('pointPhoto').value.trim();
 
     if (!name || !address) {
-        alert('Please enter a point name and address');
+        showToast('Please enter a point name and address', 'error');
         return;
     }
 
@@ -373,7 +395,7 @@ async function addPointFromForm() {
     try {
         const geocoded = await geocodeAddress(address);
         if (!geocoded) {
-            alert('Could not find address. Please try a different one.');
+            showToast('Could not find address. Please try a different one.', 'error');
             return;
         }
 
@@ -400,10 +422,10 @@ async function addPointFromForm() {
         document.getElementById('pointDay').value = '';
         document.getElementById('pointDescription').value = '';
         document.getElementById('pointPhoto').value = '';
-        alert('Point added!');
+        showToast('Point added!', 'success');
     } catch (err) {
         console.error(err);
-        alert('Error adding point');
+        showToast('Error adding point', 'error');
     } finally {
         addBtn.disabled = false;
         addBtn.textContent = '+ Add Point';
@@ -424,7 +446,7 @@ async function saveModalPoint() {
     const photo = document.getElementById('modalPhoto').value.trim();
 
     if (!name || !address) {
-        alert('Please enter a name and address');
+        showToast('Please enter a name and address', 'error');
         return;
     }
 
@@ -454,7 +476,7 @@ async function saveModalPoint() {
             saveBtn.textContent = 'Geocoding...';
             const geocoded = await geocodeAddress(address);
             if (!geocoded) {
-                alert('Could not find address. Please try a different one.');
+                showToast('Could not find address. Please try a different one.', 'error');
                 return;
             }
             lat = geocoded.lat;
@@ -477,7 +499,7 @@ async function saveModalPoint() {
         closeModal();
     } catch (err) {
         console.error(err);
-        alert('Error saving point');
+        showToast('Error saving point', 'error');
     } finally {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
@@ -526,7 +548,7 @@ function downloadJSON() {
 function importJSON() {
     const text = document.getElementById('importJsonText').value.trim();
     if (!text) {
-        alert('Paste some JSON');
+        showToast('Paste some JSON', 'error');
         return;
     }
     try {
@@ -538,52 +560,55 @@ function importJSON() {
             body: JSON.stringify({ name: p.name || 'Imported', lat: p.lat, lng: p.lng, day: p.day || null, description: p.description || '', photo: p.photo || '' })
         })))
             .then(() => {
-                alert('Import complete!');
+                showToast('Import complete!', 'success');
                 closeImportModal();
             })
             .catch(err => {
                 console.error(err);
-                alert('Import failed');
+                showToast('Import failed', 'error');
             });
     } catch (err) {
-        alert('Invalid JSON');
+        showToast('Invalid JSON', 'error');
     }
 }
 
 function clearAllPoints() {
-    if (!confirm('Clear all points? This cannot be undone.')) return;
-    const ids = points.map(p => p.id);
-    Promise.all(ids.map(id => fetch(`/api/points/${id}`, { method: 'DELETE' })))
-        .catch(err => console.error('Error clearing points', err));
+    showConfirmation('Clear all points? This cannot be undone.', () => {
+        const ids = points.map(p => p.id);
+        Promise.all(ids.map(id => fetch(`/api/points/${id}`, { method: 'DELETE' })))
+            .catch(err => console.error('Error clearing points', err));
+        closeAllMenus();
+    });
     closeAllMenus();
 }
 
 function organizeDays() {
     const unscheduled = points.filter(p => p.day === null || p.day === undefined);
     if (unscheduled.length === 0) {
-        alert('All points are already scheduled!');
+        showToast('All points are already scheduled!', 'info');
         closeAllMenus();
         return;
     }
-    if (!confirm(`Smart plan: group ${unscheduled.length} point(s) into ~${maxDays} clusters by location?`)) return;
-
-    fetch('/api/organize-days', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxDays })
-    })
-        .then(res => {
-            if (!res.ok) throw new Error('Organization failed');
-            return res.json();
+    showConfirmation(`Smart plan: group ${unscheduled.length} point(s) into ~${maxDays} clusters by location?`, () => {
+        fetch('/api/organize-days', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ maxDays })
         })
-        .then(data => {
-            alert(`Smart planning complete!\nGrouped ${data.points} point(s) into ${data.clusters} cluster(s) based on location`);
-        })
-        .catch(err => {
-            console.error('organizeDays error:', err);
-            alert('Failed to organize points');
-        })
-        .finally(() => closeAllMenus());
+            .then(res => {
+                if (!res.ok) throw new Error('Organization failed');
+                return res.json();
+            })
+            .then(data => {
+                showToast(`Smart planning complete! Grouped ${data.points} point(s) into ${data.clusters} cluster(s)`, 'success');
+            })
+            .catch(err => {
+                console.error('organizeDays error:', err);
+                showToast('Failed to organize points', 'error');
+            })
+            .finally(() => closeAllMenus());
+    });
+    closeAllMenus();
 }
 
 // ============ SETTINGS ============
@@ -717,7 +742,7 @@ async function addTaskFromForm() {
     const dueDate = document.getElementById('taskDueDate').value;
 
     if (!title) {
-        alert('Please enter a task title');
+        showToast('Please enter a task title', 'error');
         return;
     }
 
@@ -739,7 +764,7 @@ async function addTaskFromForm() {
         document.getElementById('taskDueDate').value = '';
     } catch (err) {
         console.error(err);
-        alert('Error adding task');
+        showToast('Error adding task', 'error');
     }
 }
 
