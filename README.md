@@ -43,3 +43,34 @@ python app.py
 Notes:
 - This is a development server (Flask + eventlet). For production, use proper deployment and secure the socket endpoint.
 - To allow external devices on the same LAN, access the machine's local IP (e.g., `http://192.168.1.10:5000`).
+
+## docker installation for linux
+
+1. open a folder and download compass
+```bash
+mkdir compass
+git clone https://github.com/yalli09/compass.git
+```
+2.build up the app
+
+```bash
+docker-compose up -d
+```
+3.check if it running
+```bash
+docker-compose ps
+```
+## debuging the docker app (if needed)
+### view the logs if you have an error 
+```bash
+docker-compose logs -f
+```
+### Stop the app
+```bash
+docker-compose down
+```
+
+### Rebuild if you make changes
+```bash
+docker-compose up -d --build
+```
