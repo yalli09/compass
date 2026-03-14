@@ -48,8 +48,8 @@ Notes:
 
 1. open a folder and download compass
 ```bash
-mkdir compass
 git clone https://github.com/yalli09/compass.git
+cd compass
 ```
 2.build up the app
 
