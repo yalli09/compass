@@ -410,4 +410,4 @@ if __name__ == '__main__':
     # Use socketio.run for real-time support
     # For production: debug=False, allow_unsafe_werkzeug=True for compatibility
     debug_mode = os.environ.get('FLASK_ENV', 'production') == 'development'
-    socketio.run(app, debug=debug_mode, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=debug_mode, host='0.0.0.0', port=5030, allow_unsafe_werkzeug=True)

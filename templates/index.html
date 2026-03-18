@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../static/styles.css">
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="manifest" href="/static/manifest.json">
 </head>
 <body>
     <!-- top macOS-style menu bar -->
@@ -172,5 +173,16 @@
 
     <!-- Toast Notifications Container -->
     <div id="toastContainer" class="toast-container"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/static/sw.js').then(registration => {
+            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          }, err => {
+            console.log('ServiceWorker registration failed: ', err);
+          });
+        });
+      }
+    </script>
 </body>
 </html>

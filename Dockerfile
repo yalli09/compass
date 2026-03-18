@@ -13,7 +13,7 @@ COPY templates/ templates/
 COPY static/ static/
 
 # Expose port
-EXPOSE 5000
+EXPOSE 5030
 
 # Run the application
 CMD ["python", "app.py"]

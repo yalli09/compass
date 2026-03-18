@@ -5,7 +5,7 @@ services:
     build: .
     container_name: compass-app
     ports:
-      - "5000:5000"
+      - "5030:5030"
     volumes:
       - ./data:/app/data
     environment:
