@@ -74,3 +74,14 @@ docker-compose down
 ```bash
 docker-compose up -d --build
 ```
+
+## delete the app
+### remove the app
+```bash
+docker stop compass-app
+docker rm compass-app
+```
+### delete the image
+```bash
+docker rmi compass_compass
+```

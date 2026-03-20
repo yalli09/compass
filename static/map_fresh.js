@@ -853,6 +853,50 @@ function updateTasksList() {
     });
 }
 
+function importTasks() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = readerEvent => {
+            const content = readerEvent.target.result;
+            let importedTasks = JSON.parse(content);
+            
+            // Assuming the server can handle an array of tasks
+            fetch('/api/tasks/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(importedTasks)
+            })
+            .then(res => {
+                if (!res.ok) throw new Error('Failed to import tasks');
+                showToast('Tasks imported successfully!', 'success');
+                // The server should broadcast 'tasks_updated'
+            })
+            .catch(err => {
+                console.error(err);
+                showToast('Error importing tasks', 'error');
+            });
+        }
+        reader.readAsText(file);
+    }
+    input.click();
+}
+
+function exportTasks() {
+    const data = JSON.stringify(tasks, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tasks.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Tasks exported!', 'success');
+}
+
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', function() {
     initMap();

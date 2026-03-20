@@ -398,6 +398,37 @@ def api_delete_task(tid):
     socketio.emit('tasks_updated', new_tasks)
     return jsonify({'status': 'deleted'})
 
+@app.route('/api/tasks/import', methods=['POST'])
+def api_import_tasks():
+    """Import a list of tasks."""
+    imported_tasks = request.get_json() or []
+    
+    if not isinstance(imported_tasks, list):
+        return jsonify({'error': 'invalid format, expected a list of tasks'}), 400
+
+    with lock:
+        tasks = load_tasks()
+        new_tasks = []
+        for task_data in imported_tasks:
+            title = task_data.get('title')
+            if not title:
+                continue # Skip tasks without a title
+
+            task = {
+                'id': int(time.time() * 1000) + len(new_tasks), # Simple unique ID
+                'title': title,
+                'dueDate': task_data.get('dueDate'),
+                'completed': task_data.get('completed', False),
+                'created': task_data.get('created', time.time())
+            }
+            new_tasks.append(task)
+        
+        tasks.extend(new_tasks)
+        save_tasks(tasks)
+    
+    socketio.emit('tasks_updated', tasks)
+    return jsonify({'status': 'imported', 'count': len(new_tasks)}), 201
+
 @socketio.on('connect')
 def handle_connect():
     # send current points and tasks to newly connected client
