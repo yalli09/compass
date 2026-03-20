@@ -582,6 +582,39 @@ function clearAllPoints() {
     closeAllMenus();
 }
 
+function clearAllTasks() {
+  showConfirmation('Clear all tasks? This cannot be undone.', () => {
+    const ids = (tasks || []).map(t => t.id);
+    if (!ids.length) {
+      showToast('No tasks to clear', 'info');
+      closeAllMenus();
+      return;
+    }
+
+    Promise.all(
+      ids.map(id =>
+        fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+          .then(res => {
+            if (!res.ok) throw new Error(`/api/tasks/${id} failed: ${res.status}`);
+            return res;
+          })
+      )
+    )
+    .then(() => {
+      showToast('All tasks cleared', 'success');
+      // Optionally clear local array:
+      // tasks = [];
+      closeAllMenus();
+    })
+    .catch(err => {
+      console.error('Error clearing tasks', err);
+      showToast('Error clearing some tasks', 'error');
+      closeAllMenus();
+    });
+  });
+}
+
+
 function organizeDays() {
     const unscheduled = points.filter(p => p.day === null || p.day === undefined);
     if (unscheduled.length === 0) {
@@ -1057,6 +1090,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const importTasksItem = document.getElementById('importTasksItem');
     const exportTasksItem = document.getElementById('exportTasksItem');
     const clearAllItem = document.getElementById('clearAllItem');
+    const clearAllTasksItem = document.getElementById('clearAllTasksItem');
     const mapPointsTab = document.getElementById('mapPointsTab');
     const taskListTab = document.getElementById('taskListTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
@@ -1067,6 +1101,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (importTasksItem) importTasksItem.addEventListener('click', importTasks);
     if (exportTasksItem) exportTasksItem.addEventListener('click', exportTasks);
     if (clearAllItem) clearAllItem.addEventListener('click', clearAllPoints);
+    if (clearAllTasksItem) clearAllTasksItem.addEventListener('click', clearAllTasks);
     if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
     if (organizeDaysItem) organizeDaysItem.addEventListener('click', organizeDays);
