@@ -1054,6 +1054,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
+    const importTasksItem = document.getElementById('importTasksItem');
+    const exportTasksItem = document.getElementById('exportTasksItem');
     const clearAllItem = document.getElementById('clearAllItem');
     const mapPointsTab = document.getElementById('mapPointsTab');
     const taskListTab = document.getElementById('taskListTab');
@@ -1062,6 +1064,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (exportJsonItem) exportJsonItem.addEventListener('click', downloadJSON);
     if (importJsonItem) importJsonItem.addEventListener('click', openImportModal);
+    if (importTasksItem) importTasksItem.addEventListener('click', importTasks);
+    if (exportTasksItem) exportTasksItem.addEventListener('click', exportTasks);
     if (clearAllItem) clearAllItem.addEventListener('click', clearAllPoints);
     if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
