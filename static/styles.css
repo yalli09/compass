@@ -405,10 +405,12 @@ h2 {
     font-size: 0.9rem;
     border: 1px solid hsl(210, 9%, 85%);
     cursor: pointer;
+    word-break: break-word;
 }
 
 .list li .point-info {
     flex: 1;
+    overflow-wrap: break-word;
 }
 
 .point-day {
