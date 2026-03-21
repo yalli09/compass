@@ -695,8 +695,37 @@ function saveSettings() {
 function openImportModal() {
     const modal = document.getElementById('importModal');
     modal.classList.remove('hidden');
-    document.getElementById('importJsonText').value = '';
+    const textarea = document.getElementById('importJsonText'); 
+    textarea.value = '';
     closeAllMenus();
+
+    // Add "Choose file" button if not already present
+    let chooseBtn = document.getElementById('importChooseFileBtn');
+    if (!chooseBtn) {
+      chooseBtn = document.createElement('button');
+      chooseBtn.id = 'importChooseFileBtn';
+      chooseBtn.type = 'button';
+      chooseBtn.textContent = 'Choose file...';
+      // place button next to textarea (adjust to your markup)
+      textarea.parentNode.insertBefore(chooseBtn, textarea.nextSibling);
+      chooseBtn.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = ev => {
+            textarea.value = ev.target.result;
+            // Optionally auto-import:
+            // importTasksFromJson(textarea.value);
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      });
+    }
 
     const handleKeydown = (e) => {
         if (e.key === 'Enter' && e.ctrlKey) {
@@ -887,35 +916,81 @@ function updateTasksList() {
 }
 
 function importTasks() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = e => {
-        const file = e.target.files[0];
+  const modal = document.getElementById('importModal');
+  modal.classList.remove('hidden');
+  
+  const textarea = document.getElementById('importJsonText'); 
+  textarea.value = '';
+  closeAllMenus();
+
+  // Get existing "Choose file" button or create it if it doesn't exist
+  let chooseBtn = document.getElementById('importChooseFileBtn');
+  if (!chooseBtn) {
+    chooseBtn = document.createElement('button');
+    chooseBtn.id = 'importChooseFileBtn';
+    chooseBtn.type = 'button';
+    chooseBtn.textContent = 'Choose file...';
+    textarea.parentNode.insertBefore(chooseBtn, textarea.nextSibling);
+
+    chooseBtn.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = e => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
         const reader = new FileReader();
-        reader.onload = readerEvent => {
-            const content = readerEvent.target.result;
-            let importedTasks = JSON.parse(content);
-            
-            // Assuming the server can handle an array of tasks
-            fetch('/api/tasks/import', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(importedTasks)
-            })
-            .then(res => {
-                if (!res.ok) throw new Error('Failed to import tasks');
-                showToast('Tasks imported successfully!', 'success');
-                // The server should broadcast 'tasks_updated'
-            })
-            .catch(err => {
-                console.error(err);
-                showToast('Error importing tasks', 'error');
-            });
-        }
+        reader.onload = ev => {
+          textarea.value = ev.target.result;
+        };
         reader.readAsText(file);
-    }
-    input.click();
+      };
+      input.click();
+    });
+  }
+
+  // Set up event listener for the existing "Import" button
+  const importBtn = document.getElementById('importSave');
+  importBtn.onclick = () => {
+    handleJsonImport(textarea.value);  // Manually trigger import
+  };
+
+  // Set up event listener for the existing "Cancel" button
+  const cancelBtn = document.getElementById('importCancel');
+  cancelBtn.onclick = () => {
+    const modal = document.getElementById('importModal');
+    if (modal) modal.classList.add('hidden'); // Close modal on cancel
+  };
+}
+
+function handleJsonImport(content) {
+  let importedTasks;
+
+  // Attempt to parse the JSON content
+  try {
+    importedTasks = JSON.parse(content);
+  } catch (err) {
+    console.error(err);
+    return showToast('Invalid JSON format', 'error');
+  }
+
+  // Send to server
+  fetch('/api/tasks/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(importedTasks)
+  })
+  .then(res => {
+    if (!res.ok) throw new Error('Failed to import tasks');
+    showToast('Tasks imported successfully!', 'success');
+    const modal = document.getElementById('importModal');
+    if (modal) modal.classList.add('hidden'); // Close modal on success
+  })
+  .catch(err => {
+    console.error(err);
+    showToast('Error importing tasks', 'error');
+  });
 }
 
 function exportTasks() {
