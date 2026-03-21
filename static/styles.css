@@ -534,9 +534,10 @@ h2 {
     }
     
     .sidebar-toggle {
-        display: block;
+        display: flex;
+        justify-content: center;
+        align-items: center;
         position: fixed;
-        /* move close to header for easier access on phones */
         top: 45px;
         right: 20px;
         width: 50px;
