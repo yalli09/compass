@@ -95,8 +95,15 @@ function initMap() {
         maxBoundsViscosity: 1.0
     }).setView([37.7749, -122.4194], 13);
           
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
+    // L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    //     attribution: '© OpenStreetMap contributors',
+    //     maxZoom: 19,
+    //     noWrap: true
+    // }).addTo(map);
+
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
         maxZoom: 19,
         noWrap: true 
     }).addTo(map);
