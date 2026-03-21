@@ -18,14 +18,13 @@ Features:
  - Right-click map to open modal and add new points at that location
 - Built in task list for easier trip planning 
 - Support an app experience when bookmarking it on the home screen across various devices for Progressive Web Apps (PWA)
-Quick start (macOS):
 
 ## screenshots
 
 <img src="https://i.imgur.com/za9GpxV.jpeg"/>
 <img src="https://i.imgur.com/YUjFz8L.jpeg"/>
 
-## quick start using(demonstrated on macos)
+## quick start(demonstrated on macos)
 1. Create and activate a virtual environment (optional but recommended):
 
 ```bash
