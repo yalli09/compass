@@ -10,7 +10,7 @@
     --primary-200: hsl(210, 15%, 30%);
     --primary-100: hsl(210, 20%, 20%);
     --neutral-100: hsl(0, 0%, 100%);
-    --accent-400: hsl(210, 100%, 50%);
+    --accent-400: hsl(209.07, 93.42%, 52.35%);
     --text-1: hsl(210, 20%, 20%);
     --text-2: hsl(210, 15%, 30%);
     --text-3: hsl(210, 10%, 40%);
@@ -205,7 +205,7 @@ body {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: rgba(255, 0, 0, 0.8);
+    background: rgba(20, 137, 247, 1);
     box-shadow: 0 0 20px rgba(255, 255, 255, 0.6),
                 inset 0 0 10px rgba(255, 255, 255, 0.4);
     backdrop-filter: blur(10px);
