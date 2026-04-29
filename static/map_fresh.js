@@ -225,7 +225,11 @@ function renderPoints(list) {
         const photoHtml = point.photo ? `<div style="margin-top:8px;"><img src="${point.photo}" alt="photo" style="max-width:180px;max-height:120px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'"></div>` : '';
         const descHtml = point.description ? `<div style="margin-top:8px;font-size:0.9rem;color:var(--text-2);max-width:200px;line-height:1.4;">${escapeHtml(point.description)}</div>` : '';
         const dayHtml = (point.day === null || point.day === undefined) ? 'Unscheduled' : `Day ${point.day}`;
-        const popupHtml = `<div style="min-width:200px; word-wrap: break-word; white-space: pre-wrap;"><b style="font-size:1.1rem;">${escapeHtml(point.name)}</b><div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">${dayHtml}</div>${descHtml}${photoHtml}</div>`;
+        const typeHtml = point.activity_type ? `<div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">Type: ${escapeHtml(point.activity_type)}</div>` : '';
+        const intensityHtml = point.intensity ? `<div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">Intensity: ${escapeHtml(point.intensity)}</div>` : '';
+        const durationHtml = point.duration ? `<div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">Duration: ${escapeHtml(point.duration.toString())} min</div>` : '';
+        const anchorHtml = point.anchor ? `<div style="font-size:0.85rem;color:var(--accent-color);margin-top:4px;">Anchor experience</div>` : '';
+        const popupHtml = `<div style="min-width:200px; word-wrap: break-word; white-space: pre-wrap;"><b style="font-size:1.1rem;">${escapeHtml(point.name)}</b><div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">${dayHtml}</div>${typeHtml}${intensityHtml}${durationHtml}${anchorHtml}${descHtml}${photoHtml}</div>`;
         const marker = L.marker([point.lat, point.lng], { icon: createCustomMarker() })
             .bindPopup(popupHtml)
             .addTo(map);
@@ -321,6 +325,43 @@ function applyFilter() {
     renderPoints(filteredPoints);
     updatePointsList();
     renderCalendar();
+    fetchDayPlanSummary();
+}
+
+function fetchDayPlanSummary() {
+    fetch('/api/day-plans')
+        .then(res => res.json())
+        .then(data => {
+            if (data && Array.isArray(data.dayPlans)) {
+                renderDayPlanSummary(data.dayPlans, data.unscheduled);
+            }
+        })
+        .catch(err => {
+            console.error('Failed to fetch day plan summary', err);
+        });
+}
+
+function renderDayPlanSummary(dayPlans, unscheduled = 0) {
+    const container = document.getElementById('dayPlanSummary');
+    if (!container) return;
+    if (!Array.isArray(dayPlans) || dayPlans.length === 0) {
+        container.innerHTML = `<div>No scheduled days yet. ${unscheduled ? `${unscheduled} unscheduled point(s) remain.` : ''}</div>`;
+        return;
+    }
+    container.innerHTML = dayPlans.map(plan => {
+        const activityLabel = plan.activity_types.length ? `Types: ${plan.activity_types.join(', ')}` : '';
+        const anchorLabel = plan.anchor ? 'Anchor day' : 'No anchor detected';
+        return `
+            <div class="day-plan-card" style="margin-bottom:12px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.03);">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <strong>Day ${plan.day}</strong>
+                    <span style="font-size:0.9rem;color:var(--text-3);">Score ${plan.score}/100</span>
+                </div>
+                <div style="font-size:0.9rem;color:var(--text-2);margin-top:6px;">${plan.day_type.toUpperCase()} · ${activityLabel}</div>
+                <div style="font-size:0.9rem;color:var(--text-2);margin-top:6px;">${anchorLabel} · ${plan.point_count} point(s) · ${plan.spontaneity_hours}h free slot</div>
+            </div>
+        `;
+    }).join('');
 }
 
 // ============ MODAL LOGIC ============
@@ -361,6 +402,10 @@ function showAddModal() {
     document.getElementById('modalName').value = '';
     document.getElementById('modalAddress').value = '';
     document.getElementById('modalDay').value = '';
+    document.getElementById('modalActivityType').value = '';
+    document.getElementById('modalIntensity').value = '';
+    document.getElementById('modalDuration').value = '';
+    document.getElementById('modalAnchor').checked = false;
     document.getElementById('modalDescription').value = '';
     document.getElementById('modalPhoto').value = '';
     document.getElementById('modalDelete').style.display = 'none';
@@ -374,6 +419,10 @@ function showEditModal(point) {
     document.getElementById('modalName').value = point.name || '';
     document.getElementById('modalAddress').value = '';
     document.getElementById('modalDay').value = point.day || '';
+    document.getElementById('modalActivityType').value = point.activity_type || '';
+    document.getElementById('modalIntensity').value = point.intensity || '';
+    document.getElementById('modalDuration').value = point.duration || '';
+    document.getElementById('modalAnchor').checked = !!point.anchor;
     document.getElementById('modalDescription').value = point.description || '';
     document.getElementById('modalPhoto').value = point.photo || '';
     document.getElementById('modalDelete').style.display = 'inline-block';
@@ -407,11 +456,19 @@ async function addPointFromForm() {
         }
 
         const day = dayVal ? parseInt(dayVal, 10) : null;
+        const activity_type = document.getElementById('pointActivityType').value || null;
+        const intensity = document.getElementById('pointIntensity').value || null;
+        const duration = document.getElementById('pointDuration').value ? parseInt(document.getElementById('pointDuration').value, 10) : null;
+        const anchor = document.getElementById('pointAnchor').checked;
         const payload = {
             name,
             lat: geocoded.lat,
             lng: geocoded.lng,
             day,
+            activity_type,
+            intensity,
+            duration,
+            anchor,
             description,
             photo
         };
@@ -427,6 +484,10 @@ async function addPointFromForm() {
         document.getElementById('pointName').value = '';
         document.getElementById('pointAddress').value = '';
         document.getElementById('pointDay').value = '';
+        document.getElementById('pointActivityType').value = '';
+        document.getElementById('pointIntensity').value = '';
+        document.getElementById('pointDuration').value = '';
+        document.getElementById('pointAnchor').checked = false;
         document.getElementById('pointDescription').value = '';
         document.getElementById('pointPhoto').value = '';
         showToast('Point added!', 'success');
@@ -463,14 +524,10 @@ async function saveModalPoint() {
     try {
         let lat, lng;
         
-        // When editing: use original coords if address hasn't changed significantly
         if (currentEditing && editingPointOriginal) {
             lat = editingPointOriginal.lat;
             lng = editingPointOriginal.lng;
-            // But allow re-geocoding if user explicitly changed address
-            // Check if address looks like a full reverse-geocoded string or a new short address
             if (address.length < 30 || address.includes(',') === false) {
-                // Looks like user entered a new address, geocode it
                 saveBtn.textContent = 'Geocoding...';
                 const geocoded = await geocodeAddress(address);
                 if (geocoded) {
@@ -479,7 +536,6 @@ async function saveModalPoint() {
                 }
             }
         } else {
-            // New point: must geocode address
             saveBtn.textContent = 'Geocoding...';
             const geocoded = await geocodeAddress(address);
             if (!geocoded) {
@@ -491,7 +547,11 @@ async function saveModalPoint() {
         }
 
         const day = dayVal ? parseInt(dayVal, 10) : null;
-        const payload = { name, lat, lng, day, description, photo };
+        const activity_type = document.getElementById('modalActivityType').value || null;
+        const intensity = document.getElementById('modalIntensity').value || null;
+        const duration = document.getElementById('modalDuration').value ? parseInt(document.getElementById('modalDuration').value, 10) : null;
+        const anchor = document.getElementById('modalAnchor').checked;
+        const payload = { name, lat, lng, day, activity_type, intensity, duration, anchor, description, photo };
 
         const method = currentEditing ? 'PUT' : 'POST';
         const url = currentEditing ? `/api/points/${currentEditing}` : '/api/points';
@@ -640,7 +700,10 @@ function organizeDays() {
                 return res.json();
             })
             .then(data => {
-                showToast(`Smart planning complete! Grouped ${data.points} point(s) into ${data.clusters} cluster(s)`, 'success');
+                showToast(`Smart planning complete! Assigned ${data.points} point(s) into ${data.clusters} day(s).`, 'success');
+                if (data.dayPlans) {
+                    renderDayPlanSummary(data.dayPlans);
+                }
             })
             .catch(err => {
                 console.error('organizeDays error:', err);

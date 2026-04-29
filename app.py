@@ -90,6 +90,16 @@ def save_tasks(tasks):
         json.dump(tasks, f, indent=2)
 
 
+def _distance(a, b):
+    return math.hypot(a['lat'] - b['lat'], a['lng'] - b['lng'])
+
+
+def _centroid(cluster):
+    lat = sum(p['lat'] for p in cluster) / len(cluster)
+    lng = sum(p['lng'] for p in cluster) / len(cluster)
+    return {'lat': lat, 'lng': lng}
+
+
 def cluster_points_by_distance(points, num_clusters):
     """Partition `points` (list of dicts with lat/lng) into at most
     ``num_clusters`` geographically coherent groups.
@@ -104,15 +114,6 @@ def cluster_points_by_distance(points, num_clusters):
     Returns the list of clusters (each cluster is a list of point
     dicts) for convenience/testing.
     """
-
-
-    def _distance(a, b):
-        return math.hypot(a['lat'] - b['lat'], a['lng'] - b['lng'])
-
-    def _centroid(cluster):
-        lat = sum(p['lat'] for p in cluster) / len(cluster)
-        lng = sum(p['lng'] for p in cluster) / len(cluster)
-        return {'lat': lat, 'lng': lng}
 
     # make initial singleton clusters
     clusters = [[p] for p in points]
@@ -142,6 +143,131 @@ def cluster_points_by_distance(points, num_clusters):
             p['day'] = day_index
 
     return clusters
+
+
+def _normalize_intensity(value):
+    if value is None:
+        return 'medium'
+    text = str(value).strip().lower()
+    if text in ('low', 'l'):
+        return 'low'
+    if text in ('high', 'h'):
+        return 'high'
+    return 'medium'
+
+
+def _cluster_radius(cluster):
+    if len(cluster) <= 1:
+        return 0.0
+    center = _centroid(cluster)
+    return max(_distance(p, center) for p in cluster)
+
+
+def score_day_cluster(cluster):
+    if not cluster:
+        return {
+            'score': 0,
+            'geographic': 1,
+            'variety': 1,
+            'energy': 1,
+            'timing': 1,
+            'memorability': 1,
+            'anchor': False,
+            'activity_types': [],
+            'dominant_activity_type': 'unknown',
+            'day_type': 'easy'
+        }
+
+    activity_types = [str(p.get('activity_type') or 'other').strip().lower() for p in cluster]
+    unique_types = set(activity_types)
+    variety = min(max(len(unique_types), 1), 5)
+    variety_score = variety
+
+    intensities = [_normalize_intensity(p.get('intensity')) for p in cluster]
+    high_count = intensities.count('high')
+    low_count = intensities.count('low')
+    if high_count > 0 and low_count > 0:
+        energy_score = 5
+    elif low_count >= len(cluster) * 0.6:
+        energy_score = 3
+    elif high_count >= len(cluster) * 0.6:
+        energy_score = 4
+    else:
+        energy_score = 4
+
+    anchor = any(str(p.get('anchor')).lower() in ('true', '1', 'yes') for p in cluster)
+    memorability_score = 5 if anchor else 2
+
+    radius = _cluster_radius(cluster)
+    if radius <= 0.005:
+        geographic_score = 5
+    elif radius <= 0.015:
+        geographic_score = 4
+    elif radius <= 0.03:
+        geographic_score = 3
+    else:
+        geographic_score = 2
+
+    timing_score = 5
+    base = (
+        geographic_score * 0.25 +
+        variety_score * 0.2 +
+        energy_score * 0.2 +
+        timing_score * 0.2 +
+        memorability_score * 0.15
+    )
+    score = int(round(base * 20))
+    score = max(0, min(score, 100))
+
+    dominant_type = max(unique_types, key=lambda t: activity_types.count(t)) if unique_types else 'other'
+
+    if anchor:
+        day_type = 'peak'
+    elif low_count >= len(cluster) * 0.6:
+        day_type = 'rest'
+    elif high_count >= len(cluster) * 0.6:
+        day_type = 'build'
+    elif variety >= 3:
+        day_type = 'easy'
+    else:
+        day_type = 'easy'
+
+    return {
+        'score': score,
+        'geographic': geographic_score,
+        'variety': variety_score,
+        'energy': energy_score,
+        'timing': timing_score,
+        'memorability': memorability_score,
+        'anchor': anchor,
+        'activity_types': sorted(unique_types),
+        'dominant_activity_type': dominant_type,
+        'day_type': day_type,
+        'point_count': len(cluster),
+        'spontaneity_hours': 2
+    }
+
+
+def sort_clusters_for_trip(clusters):
+    priority = {'easy': 0, 'build': 1, 'rest': 2, 'peak': 3, 'winddown': 4}
+    scored_clusters = [(cluster, score_day_cluster(cluster)) for cluster in clusters]
+    scored_clusters.sort(key=lambda item: (priority.get(item[1]['day_type'], 0), -item[1]['score']))
+    return [cluster for cluster, _summary in scored_clusters]
+
+
+def create_day_plan(cluster, day_number):
+    summary = score_day_cluster(cluster)
+    return {
+        'day': day_number,
+        'points': [p for p in cluster],
+        'score': summary['score'],
+        'day_type': summary['day_type'],
+        'anchor': summary['anchor'],
+        'activity_types': summary['activity_types'],
+        'dominant_activity_type': summary['dominant_activity_type'],
+        'point_count': summary['point_count'],
+        'spontaneity_hours': summary['spontaneity_hours']
+    }
 
 
 def _euclidean_distance(a, b):
@@ -223,12 +349,22 @@ def api_add_point():
             except:
                 day = None
         
+        anchor_value = data.get('anchor')
+        if isinstance(anchor_value, str):
+            anchor = anchor_value.strip().lower() in ('true', '1', 'yes', 'on')
+        else:
+            anchor = bool(anchor_value)
+
         point = {
             'id': int(time.time() * 1000),
             'name': name,
             'lat': float(lat),
             'lng': float(lng),
             'day': day,
+            'activity_type': data.get('activity_type'),
+            'intensity': data.get('intensity'),
+            'duration': int(data.get('duration')) if data.get('duration') is not None and data.get('duration') != '' else None,
+            'anchor': anchor,
             'description': data.get('description', ''),
             'photo': data.get('photo', ''),
             'created': time.time()
@@ -282,6 +418,25 @@ def api_update_point(pid):
                             p['day'] = int(day)
                         except:
                             p['day'] = None
+                if 'activity_type' in data:
+                    p['activity_type'] = data['activity_type']
+                if 'intensity' in data:
+                    p['intensity'] = data['intensity']
+                if 'duration' in data:
+                    duration = data['duration']
+                    if duration == '' or duration is None:
+                        p['duration'] = None
+                    else:
+                        try:
+                            p['duration'] = int(duration)
+                        except:
+                            p['duration'] = None
+                if 'anchor' in data:
+                    anchor_value = data['anchor']
+                    if isinstance(anchor_value, str):
+                        p['anchor'] = anchor_value.strip().lower() in ('true', '1', 'yes', 'on')
+                    else:
+                        p['anchor'] = bool(anchor_value)
                 if 'description' in data:
                     p['description'] = data['description']
                 if 'photo' in data:
@@ -309,21 +464,40 @@ def api_organize_days():
         if not unscheduled:
             return jsonify({'status': 'all_scheduled'})
         
-        # Get max days from request or default to 7
         data = request.get_json() or {}
-        # override with global setting if not provided
         max_days = data.get('maxDays')
         if max_days is None:
             max_days = load_settings().get('maxDays', 7)
         num_clusters = min(max_days, len(unscheduled))
         
-        # run clustering helper which mutates the points in-place
         clusters = cluster_points_by_distance(unscheduled, num_clusters)
-        # cluster_points_by_distance already assigns day numbers
-        
+        for cluster in clusters:
+            cluster.sort(key=lambda p: (p.get('name') or '').lower())
+        sorted_clusters = sort_clusters_for_trip(clusters)
+        for day_index, cluster in enumerate(sorted_clusters, start=1):
+            for p in cluster:
+                p['day'] = day_index
         save_points(points)
+
+        day_plans = [create_day_plan(cluster, index + 1) for index, cluster in enumerate(sorted_clusters)]
     socketio.emit('points_updated', points)
-    return jsonify({'status': 'organized', 'clusters': num_clusters, 'points': len(unscheduled)})
+    return jsonify({'status': 'organized', 'clusters': num_clusters, 'points': len(unscheduled), 'dayPlans': day_plans})
+
+
+@app.route('/api/day-plans', methods=['GET'])
+def api_day_plans():
+    points = load_points()
+    days = {}
+    for p in points:
+        day = p.get('day')
+        if day is None or day == '':
+            continue
+        days.setdefault(int(day), []).append(p)
+    day_plans = []
+    for day in sorted(days):
+        day_plans.append(create_day_plan(days[day], day))
+    unscheduled_count = len([p for p in points if p.get('day') is None or p.get('day') == ''])
+    return jsonify({'dayPlans': day_plans, 'unscheduled': unscheduled_count})
 
 # ============ TASKS API ENDPOINTS ============
 @app.route('/api/tasks', methods=['GET'])

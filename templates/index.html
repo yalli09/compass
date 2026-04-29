@@ -73,6 +73,26 @@
                         <input type="text" id="pointName" placeholder="Point name" class="input-field">
                         <input type="text" id="pointAddress" placeholder="Search address (e.g. 980 Broadway, NYC)" class="input-field">
                         <input type="number" id="pointDay" placeholder="Day (optional)" min="1" class="input-field">
+                        <select id="pointActivityType" class="input-field">
+                            <option value="">Activity type (optional)</option>
+                            <option value="cultural">Cultural</option>
+                            <option value="outdoor">Outdoor</option>
+                            <option value="food">Food</option>
+                            <option value="leisure">Leisure</option>
+                            <option value="shopping">Shopping</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <select id="pointIntensity" class="input-field">
+                            <option value="">Intensity (optional)</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                        <input type="number" id="pointDuration" placeholder="Duration (min)" min="0" class="input-field">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="pointAnchor">
+                            <span style="font-size:0.95rem;color:var(--text-2);">Anchor experience</span>
+                        </label>
                         <textarea id="pointDescription" placeholder="Description (optional)" class="input-field" style="resize:vertical;height:60px;"></textarea>
                         <input type="url" id="pointPhoto" placeholder="Photo URL (optional)" class="input-field">
                         <button id="addPointBtn" class="action-btn add-btn">+ Add Point</button>
@@ -85,6 +105,11 @@
                         <!-- to ugly
                         <button onclick="clearAllPoints()" class="action-btn">Clear All Points</button>
                         -->
+                    </div>
+
+                    <div class="form-section">
+                        <h2>Day Plan Summary</h2>
+                        <div id="dayPlanSummary" class="day-plan-summary" style="min-height:120px; color:var(--text-2);"></div>
                     </div>
                 </div>
 
@@ -127,6 +152,26 @@
             <label>Name:<br><input type="text" id="modalName" class="input-field" placeholder="Point name"></label>
             <label>Address (search):<br><input type="text" id="modalAddress" class="input-field" placeholder="Type an address"></label>
             <label>Day (optional):<br><input type="number" id="modalDay" min="1" class="input-field" style="width:4rem;" placeholder="Leave empty for unscheduled"></label>
+            <select id="modalActivityType" class="input-field">
+                <option value="">Activity type (optional)</option>
+                <option value="cultural">Cultural</option>
+                <option value="outdoor">Outdoor</option>
+                <option value="food">Food</option>
+                <option value="leisure">Leisure</option>
+                <option value="shopping">Shopping</option>
+                <option value="other">Other</option>
+            </select>
+            <select id="modalIntensity" class="input-field">
+                <option value="">Intensity (optional)</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+            <input type="number" id="modalDuration" placeholder="Duration (min)" min="0" class="input-field">
+            <label style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="modalAnchor">
+                <span style="font-size:0.95rem;color:var(--text-2);">Anchor experience</span>
+            </label>
             <label>Description:<br><textarea id="modalDescription" class="input-field" placeholder="Add notes" style="resize:vertical;height:60px;"></textarea></label>
             <label>Photo URL:<br><input type="url" id="modalPhoto" class="input-field" placeholder="https://example.com/photo.jpg"></label>
             <div style="display:none;">
