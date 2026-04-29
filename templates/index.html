@@ -224,11 +224,34 @@
         </div>
     </div>
 
+    <!-- Chat Widget -->
+    <div id="chatWidget" class="chat-widget hidden">
+        <div class="chat-header">
+            <h3>Travel Assistant</h3>
+            <button id="chatClose" class="chat-close-btn">✕</button>
+        </div>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-area">
+            <input 
+                type="text" 
+                id="chatInput" 
+                class="chat-input" 
+                placeholder="Ask me about your trip..."
+                autocomplete="off"
+            >
+            <button id="chatSendBtn" class="chat-send-btn">Send</button>
+        </div>
+    </div>
+
+    <!-- Chat Toggle Button -->
+    <button id="chatToggleBtn" class="chat-toggle-btn" title="Open Chat Assistant">💬</button>
+
     <!-- Leaflet JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <!-- Socket.IO client -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="../static/map_fresh.js"></script>
+    <script src="../static/chat.js"></script>
 
     <!-- Toast Notifications Container -->
     <div id="toastContainer" class="toast-container"></div>

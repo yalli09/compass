@@ -1,14 +1,20 @@
-from flask import Flask, render_template, jsonify, request
-from flask_socketio import SocketIO  # type: ignore
+from flask import Flask, render_template, jsonify, request, session
+from flask_socketio import SocketIO, emit, join_room, leave_room  # type: ignore
 import threading
 import time
 import json
 import os
 import math
+import uuid
+from llm_model import query_llm
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
 socketio = SocketIO(app, cors_allowed_origins='*')
+
+# Session-based chat history storage (in-memory)
+# Format: {session_id: [{"role": "user|assistant", "content": "..."}, ...]}
+chat_sessions = {}
 
 POINTS_FILE = os.path.join(os.path.dirname(__file__), 'points.json')
 TASKS_FILE = os.path.join(os.path.dirname(__file__), 'tasks.json')
@@ -605,14 +611,79 @@ def api_import_tasks():
 
 @socketio.on('connect')
 def handle_connect():
+    # Generate a unique session ID for this connection
+    session_id = str(uuid.uuid4())
+    chat_sessions[session_id] = []
+    emit('session_id', {'session_id': session_id})
+    
     # send current points and tasks to newly connected client
     points = load_points()
     tasks = load_tasks()
     socketio.emit('points_updated', points)
     socketio.emit('tasks_updated', tasks)
 
+
+@socketio.on('chat_message')
+def handle_chat_message(data):
+    """Handle incoming chat messages from the client."""
+    session_id = data.get('session_id')
+    user_message = data.get('message', '').strip()
+    
+    if not session_id or not user_message:
+        emit('error', {'message': 'Invalid session or message'})
+        return
+    
+    # Initialize session if not exists
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
+    
+    # Add user message to history
+    chat_sessions[session_id].append({
+        'role': 'user',
+        'content': user_message
+    })
+    
+    # Emit the user message to the client
+    emit('chat_response', {
+        'role': 'user',
+        'content': user_message
+    }, broadcast=False)
+    
+    # Build context from chat history
+    context_messages = []
+    for msg in chat_sessions[session_id][:-1]:  # Exclude the latest user message
+        if msg['role'] == 'assistant':
+            context_messages.append(f"Previous assistant response: {msg['content']}")
+    
+    context = "\n".join(context_messages) if context_messages else None
+    
+    try:
+        # Query the LLM
+        assistant_response = query_llm(user_message, context=context)
+        
+        # Add assistant response to history
+        chat_sessions[session_id].append({
+            'role': 'assistant',
+            'content': assistant_response
+        })
+        
+        # Emit the assistant response to the client
+        emit('chat_response', {
+            'role': 'assistant',
+            'content': assistant_response
+        }, broadcast=False)
+        
+    except Exception as e:
+        error_message = f"Error querying LLM: {str(e)}"
+        emit('error', {'message': error_message})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Clean up when a client disconnects."""
+    # Note: session cleanup could happen here if needed
+    pass
+
 if __name__ == '__main__':
-    # Use socketio.run for real-time support
-    # For production: debug=False, allow_unsafe_werkzeug=True for compatibility
     debug_mode = os.environ.get('FLASK_ENV', 'production') == 'development'
     socketio.run(app, debug=debug_mode, host='0.0.0.0', port=5030, allow_unsafe_werkzeug=True)

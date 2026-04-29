@@ -3,4 +3,4 @@ flask-socketio==5.3.5
 eventlet==0.33.3
 python-socketio==5.10.0
 python-engineio==4.8.0
-
+ollama==0.6.2
