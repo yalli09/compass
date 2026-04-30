@@ -1,43 +1,70 @@
-import ollama
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
+import torch
 
-MODEL = "LiquidAI/lfm2.5-350m"
+MODEL_ID = "LiquidAI/LFM2.5-350M"
 
-def query_llm(user_prompt, context=None):
-    system = {"role": "system", "content": """
-              
-              
-              
-You are a travel assistant that provides concise, practical itineraries, budgets, transport options, packing lists, and booking workflows. Prioritize user goals, safety, and clear actionable steps. Always confirm key constraints (dates, travelers, budget, preferences) before finalizing plans. When suggesting prices or schedules, state assumptions and provide ranges. Offer one recommended itinerary plus 1–2 alternatives. Use short numbered steps for actions (book, check visa, buy insurance). If asked to generate code, return only code blocks. Refuse or escalate requests that involve wrongdoing, fraud, or sharing private credentials.
+# Load model + tokenizer (adjust dtype / device_map per your hardware)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    device_map="auto",
+    dtype=torch.bfloat16,  # change to torch.float16 or remove if unsupported
+    # attn_implementation="flash_attention_2",  # uncomment on compatible GPU
+)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Reusable text streamer (optional; prints generation as it streams)
+streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+# System prompt
+SYSTEM_PROMPT = """You are a travel assistant that provides concise, practical itineraries, budgets, transport options, packing lists, and booking workflows. Prioritize user goals, safety, and clear actionable steps. Always confirm key constraints (dates, travelers, budget, preferences) before finalizing plans. When suggesting prices or schedules, state assumptions and provide ranges. Offer one recommended itinerary plus 1–2 alternatives. Use short numbered steps for actions (book, check visa, buy insurance). If asked to generate code, return only code blocks. Refuse or escalate requests that involve wrongdoing, fraud, or sharing private credentials.
 
 Assistant behavior rules
-Ask only essential clarifying questions when needed (dates, origin, destination, travelers, budget, trip purpose, mobility/dietary needs). Otherwise assume reasonable defaults and produce a full plan.
-Provide: 1) summary (3 bullet facts), 2) 3-day sample itinerary or full-trip day-by-day, 3) transport options with estimated cost/time, 4) estimated budget breakdown, 5) packing checklist, 6) booking checklist with links placeholder, 7) risks/notes (visa, health, weather).
-Use currency local to the destination; if unspecified, use USD and state that assumption.
-Give time estimates and buffers (transfer times, check-in). When recommending flights/trains, include class and baggage assumptions.
-When giving budgets: show totals and per-person breakdown, and label which costs are estimates vs fixed.
-For alternative itineraries, vary pace (relaxed, active) and budget (economy, mid-range).
-Message structure (assistant replies)
-Short summary (1–2 lines)
-Top recommendation (concise title + 1-line reason)
-Itinerary (day-by-day numbered list)
-Transport & timing (table-like bullets: mode — time — cost est.)
-Budget (brief bullet totals and per-person)
-Packing checklist (grouped: essentials, clothing, documents, meds, tech)
-Booking checklist (step-by-step with priorities)
-Notes & warnings (visas, insurance, weather)
-Quick alternatives (2 bullets: relaxed, budget)
 Do not rush the user let him tell you and then plan for him
-              """}
-    messages = [system]
+and remember do not do more then the user asks you unless they want you to do it
+read what the user is asking not always he want to plan a trip
+"""
+
+def query_llm(user_prompt: str, context: str | None = None, stream: bool = True, **gen_kwargs):
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if context:
         messages.append({"role": "system", "content": context})
     messages.append({"role": "user", "content": user_prompt})
-    try:
-        resp = ollama.chat(model=MODEL, messages=messages)
-    except ollama.ResponseError as e:
-        if getattr(e, "status_code", None) == 404:
-            ollama.pull(model=MODEL)
-            resp = ollama.chat(model=MODEL, messages=messages)
-        else:
-            raise
-    return resp["message"]["content"]
+
+    prepared = tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        tokenize=True,
+    )
+    input_ids = prepared["input_ids"].to(model.device)
+    attention_mask = prepared.get("attention_mask")
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(model.device)
+
+    gen_inputs = {"input_ids": input_ids}
+    if attention_mask is not None:
+        gen_inputs["attention_mask"] = attention_mask
+
+    defaults = dict(
+        do_sample=True,
+        temperature=0.1,
+        top_k=50,
+        repetition_penalty=1.05,
+        max_new_tokens=512,
+    )
+    gen_params = {**defaults, **gen_kwargs}
+
+    if stream:
+        output = model.generate(**gen_inputs, streamer=streamer, **gen_params)
+        generated_ids = output[0][ input_ids.shape[-1] : ]
+        return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    else:
+        output_ids = model.generate(**gen_inputs, **gen_params)
+        new_tokens = output_ids[0][ input_ids.shape[-1] : ]
+        return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+
+# Example usage
+if __name__ == "__main__":
+    resp = query_llm("how are you", stream=False, temperature=0.5, max_new_tokens=256)
+    print(resp)
