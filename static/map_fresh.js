@@ -385,14 +385,18 @@ function showEditModal(point) {
 // ============ POINT OPERATIONS ============
 async function addPointFromForm() {
     const name = document.getElementById('pointName').value.trim();
-    const address = document.getElementById('pointAddress').value.trim();
+    let address = document.getElementById('pointAddress').value.trim();
     const dayVal = document.getElementById('pointDay').value.trim();
     const description = document.getElementById('pointDescription').value.trim();
     const photo = document.getElementById('pointPhoto').value.trim();
 
-    if (!name || !address) {
-        showToast('Please enter a point name and address', 'error');
+    // If the address field is empty, use the point name as the address
+    if (!name) {
+        showToast('Please enter a point name', 'error');
         return;
+    }
+    if (!address) {
+        address = name;
     }
 
     const addBtn = document.getElementById('addPointBtn');
@@ -447,14 +451,18 @@ function removePoint(id) {
 async function saveModalPoint() {
     const saveBtn = document.getElementById('modalSave');
     const name = document.getElementById('modalName').value.trim();
-    const address = document.getElementById('modalAddress').value.trim();
+    let address = document.getElementById('modalAddress').value.trim();
     const dayVal = document.getElementById('modalDay').value.trim();
     const description = document.getElementById('modalDescription').value.trim();
     const photo = document.getElementById('modalPhoto').value.trim();
 
-    if (!name || !address) {
-        showToast('Please enter a name and address', 'error');
+    // If the address field is empty, use the point name as address
+    if (!name) {
+        showToast('Please enter a name', 'error');
         return;
+    }
+    if (!address) {
+        address = name;
     }
 
     saveBtn.disabled = true;
