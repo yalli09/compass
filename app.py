@@ -5,6 +5,7 @@ import time
 import json
 import os
 import math
+from clens import get_best_image
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
@@ -31,7 +32,7 @@ def load_storage():
     """
 
     if not os.path.exists(POINTS_FILE):
-        return {'points': [], 'settings': {'maxDays': 7}}
+        return {'points': [], 'settings': {'maxDays': 7, 'autoFetchImage': False}}
     with open(POINTS_FILE, 'r', encoding='utf-8') as f:
         try:
             data = json.load(f)
@@ -39,13 +40,16 @@ def load_storage():
             return {'points': [], 'settings': {'maxDays': 7}}
     if isinstance(data, list):
         # legacy file containing just points
-        return {'points': data, 'settings': {'maxDays': 7}}
+        return {'points': data, 'settings': {'maxDays': 7, 'autoFetchImage': False}}
     elif isinstance(data, dict):
         pts = data.get('points', [])
         settings = data.get('settings', {})
         # ensure default maxDays
         if 'maxDays' not in settings:
             settings['maxDays'] = 7
+        # ensure default for auto-fetch image setting
+        if 'autoFetchImage' not in settings:
+            settings['autoFetchImage'] = False
         return {'points': pts, 'settings': settings}
     else:
         return {'points': [], 'settings': {'maxDays': 7}}
@@ -193,6 +197,15 @@ def api_update_settings():
             settings['maxDays'] = int(data['maxDays'])
         except Exception:
             pass
+    if 'autoFetchImage' in data:
+        val = data['autoFetchImage']
+        if isinstance(val, bool):
+            settings['autoFetchImage'] = val
+        else:
+            try:
+                settings['autoFetchImage'] = str(val).lower() in ('1', 'true', 'yes', 'on')
+            except Exception:
+                settings['autoFetchImage'] = False
     save_settings(settings)
     # broadcast to all clients so their calendars update
     socketio.emit('settings_updated', settings)
@@ -233,6 +246,21 @@ def api_add_point():
             'photo': data.get('photo', ''),
             'created': time.time()
         }
+        # If photo is empty and auto-fetch is enabled, attempt to fetch
+        settings = load_settings()
+        try:
+            if (not point.get('photo')) and settings.get('autoFetchImage'):
+                try:
+                    img = get_best_image(point.get('name') or '')
+                    if img:
+                        point['photo'] = img
+                except Exception:
+                    # ignore errors from the image fetch
+                    pass
+        except Exception:
+            # defensive: don't let settings lookup crash point creation
+            pass
+
         points.append(point)
         # if the user specified a day explicitly, propagate to nearby
         # unscheduled points so clusters form around manually scheduled

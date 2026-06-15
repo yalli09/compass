@@ -19,6 +19,9 @@
     --surface-3: hsl(210, 13%, 95%);
     --border-1: hsl(210, 9%, 85%);
     --border-2: hsl(210, 11%, 90%);
+    /* dynamic viewport and header height for mobile Safari fixes */
+    --vh: 1vh;
+    --header-h: 40px;
 }
 
 *,
@@ -573,8 +576,9 @@ h2 {
         display: none;
     }
     
+    /* Use dynamic viewport unit to avoid mobile Safari 100vh issues */
     .map-wrapper {
-        height: 50vh;
+        height: calc(var(--vh, 1vh) * 100 - var(--header-h, 40px));
     }
     /* calendar rows on narrower screens */
     .calendar-days {
@@ -607,7 +611,7 @@ h2 {
     }
     
     .map-wrapper {
-        height: 50vh;
+        height: calc(var(--vh, 1vh) * 100 - var(--header-h, 40px));
     }
 
     .sidebar.hidden-mobile ~ .map-wrapper {

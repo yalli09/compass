@@ -15,6 +15,7 @@ let editingPointOriginal = null; // store original coords when editing
 let searchQuery = ''; // search filter query
 let currentOpenMenu = null; // track which menu is currently open
 let currentTab = 'mapPoints'; // track current tab
+let autoFetchImage = false; // whether to auto-fetch image when none provided
 
 // ============ TOAST NOTIFICATIONS ============
 function showToast(message, type = 'info', duration = 1000) {
@@ -125,6 +126,11 @@ function initMap() {
                 renderCalendar();
                 applyFilter();
             }
+            if (s && typeof s.autoFetchImage !== 'undefined') {
+                autoFetchImage = !!s.autoFetchImage;
+                const cb = document.getElementById('settingsAutoFetch');
+                if (cb) cb.checked = autoFetchImage;
+            }
         });
     }
 
@@ -137,10 +143,17 @@ function initMap() {
 
     // load global settings from server
     fetch('/api/settings').then(r => r.json()).then(s => {
-        if (s && typeof s.maxDays === 'number') {
-            maxDays = s.maxDays;
-            localStorage.setItem('maxDays', maxDays);
-            renderCalendar();
+        if (s) {
+            if (typeof s.maxDays === 'number') {
+                maxDays = s.maxDays;
+                localStorage.setItem('maxDays', maxDays);
+                renderCalendar();
+            }
+            if (typeof s.autoFetchImage !== 'undefined') {
+                autoFetchImage = !!s.autoFetchImage;
+                const cb = document.getElementById('settingsAutoFetch');
+                if (cb) cb.checked = autoFetchImage;
+            }
         }
     }).catch(err => console.error('Failed to load settings', err));
 
@@ -664,6 +677,8 @@ function openModalSettings() {
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
     document.getElementById('settingsMaxDays').value = maxDays;
+    const cb = document.getElementById('settingsAutoFetch');
+    if (cb) cb.checked = !!autoFetchImage;
     closeAllMenus();
 
     const handleKeydown = (e) => {
@@ -691,17 +706,23 @@ function closeModalSettings() {
 
 function saveSettings() {
     const v = parseInt(document.getElementById('settingsMaxDays').value, 10) || 7;
+    const auto = !!(document.getElementById('settingsAutoFetch') && document.getElementById('settingsAutoFetch').checked);
     // send updated setting to server, which will broadcast to other clients
     fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxDays: v })
+        body: JSON.stringify({ maxDays: v, autoFetchImage: auto })
     }).then(r => r.json()).then(data => {
-        if (data.settings && typeof data.settings.maxDays === 'number') {
-            maxDays = data.settings.maxDays;
-            localStorage.setItem('maxDays', maxDays);
-            renderCalendar();
-            applyFilter();
+        if (data.settings) {
+            if (typeof data.settings.maxDays === 'number') {
+                maxDays = data.settings.maxDays;
+                localStorage.setItem('maxDays', maxDays);
+                renderCalendar();
+                applyFilter();
+            }
+            if (typeof data.settings.autoFetchImage !== 'undefined') {
+                autoFetchImage = !!data.settings.autoFetchImage;
+            }
         }
     }).catch(err => console.error('saveSettings error', err));
     closeModalSettings();
@@ -1027,6 +1048,31 @@ document.addEventListener('DOMContentLoaded', function() {
     applyFilter();
     updateTasksList();
 
+    // Ensure map height and Leaflet sizing behave properly on mobile/resizes
+    function adjustMapHeight() {
+        const header = document.querySelector('.menu');
+        const mapWrapper = document.querySelector('.map-wrapper');
+        const headerH = header ? header.offsetHeight : 0;
+        if (!mapWrapper) return;
+        // On narrow viewports (mobile), make the map fill the remaining viewport
+        if (window.innerWidth <= 768) {
+            mapWrapper.style.height = (window.innerHeight - headerH) + 'px';
+        } else {
+            // let CSS handle desktop heights
+            mapWrapper.style.height = '';
+        }
+        if (map) {
+            // allow layout to settle then invalidate Leaflet size
+            setTimeout(() => map.invalidateSize(), 120);
+        }
+    }
+
+    // initial adjustment
+    adjustMapHeight();
+    // update on resize / orientation change
+    window.addEventListener('resize', adjustMapHeight);
+    window.addEventListener('orientationchange', adjustMapHeight);
+
     // Global keyboard handler for menus
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -1209,9 +1255,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (toggleBtn && sidebar) {
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('hidden-mobile');
-            // Notify the map that its container size has changed
+            // Adjust layout and notify the map that its container size has changed
             setTimeout(() => {
-                if (map) map.invalidateSize();
+                adjustMapHeight();
             }, 300);
         });
     }
