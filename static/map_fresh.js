@@ -16,6 +16,8 @@ let searchQuery = ''; // search filter query
 let currentOpenMenu = null; // track which menu is currently open
 let currentTab = 'mapPoints'; // track current tab
 let autoFetchImage = false; // whether to auto-fetch image when none provided
+let currentTrip = null; // selected trip name, null = no project selected
+let projects = [];
 
 // ============ TOAST NOTIFICATIONS ============
 function showToast(message, type = 'info', duration = 1000) {
@@ -37,6 +39,204 @@ function showToast(message, type = 'info', duration = 1000) {
             }
         }, 300); // Wait for transition
     }, duration);
+}
+
+function buildUrl(path) {
+    if (!currentTrip) return path;
+    return path + (path.includes('?') ? '&' : '?') + 'trip=' + encodeURIComponent(currentTrip);
+}
+
+function ensureProjectSelected() {
+    if (currentTrip) return true;
+    showToast('Select a project first from File > Project', 'error', 2000);
+    openProjectModal(true);
+    return false;
+}
+
+async function loadTrips() {
+    try {
+        const res = await fetch('/api/trips');
+        const list = await res.json();
+        projects = Array.isArray(list) ? list : [];
+        const stored = localStorage.getItem('currentTrip');
+        if (stored && projects.some(t => t.name === stored)) {
+            currentTrip = stored;
+        } else {
+            currentTrip = null;
+        }
+        refreshProjectMenu(projects);
+        if (!projects.length) {
+            openProjectModal(true);
+        } else if (!currentTrip) {
+            showToast('Open a project from File > Project', 'info', 1200);
+        }
+        return projects;
+    } catch (err) {
+        console.error('loadTrips error', err);
+        return [];
+    }
+}
+
+function refreshProjectMenu(list) {
+    const listEl = document.getElementById('projectList');
+    const currentLabel = document.getElementById('currentProjectLabel');
+    const deleteBtn = document.getElementById('deleteProjectItem');
+
+    if (currentLabel) {
+        currentLabel.textContent = currentTrip ? `Current project: ${currentTrip}` : 'Current project: none';
+    }
+    if (listEl) {
+        listEl.innerHTML = '';
+        if (!list.length) {
+            const item = document.createElement('div');
+            item.className = 'menu-item';
+            item.style.cursor = 'default';
+            item.style.opacity = '0.7';
+            item.textContent = 'No projects yet.';
+            listEl.appendChild(item);
+        } else {
+            list.forEach((t) => {
+                const item = document.createElement('div');
+                item.className = 'menu-item';
+                item.style.padding = '0.65rem 1rem';
+                item.style.borderRadius = '6px';
+                item.style.margin = '0 0.5rem 0.35rem 0.5rem';
+                item.style.background = t.name === currentTrip ? 'hsl(205, 100%, 93%)' : 'transparent';
+                item.style.fontWeight = t.name === currentTrip ? '700' : '500';
+                item.style.color = t.name === currentTrip ? 'var(--accent-color)' : 'var(--text-1)';
+                item.textContent = t.name;
+                item.onclick = () => selectProject(t.name);
+                listEl.appendChild(item);
+            });
+        }
+    }
+    if (deleteBtn) {
+        deleteBtn.style.opacity = currentTrip ? '1' : '0.4';
+        deleteBtn.style.pointerEvents = currentTrip ? 'auto' : 'none';
+    }
+}
+
+function validateProjectName(name) {
+    return typeof name === 'string' && /^[a-zA-Z0-9_-]+$/.test(name);
+}
+
+function openProjectModal(focus = false) {
+    const modal = document.getElementById('projectModal');
+    const input = document.getElementById('projectNameInput');
+    if (!modal || !input) return;
+    refreshProjectMenu(projects);
+    modal.classList.remove('hidden');
+    input.value = '';
+    if (focus) {
+        setTimeout(() => input.focus(), 100);
+    }
+}
+
+function closeProjectModal() {
+    const modal = document.getElementById('projectModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+}
+
+async function selectProject(name) {
+    if (!name || name === currentTrip) return;
+    currentTrip = name;
+    localStorage.setItem('currentTrip', currentTrip);
+    refreshProjectMenu(projects);
+    await reloadData();
+}
+
+async function createProject() {
+    const input = document.getElementById('projectNameInput');
+    const button = document.getElementById('createProjectSave');
+    if (!input || !button) return;
+    const name = input.value.trim();
+    if (!validateProjectName(name)) {
+        showToast('Project name is invalid. Use letters, numbers, hyphen, underscore.', 'error', 1800);
+        return;
+    }
+    button.disabled = true;
+    button.textContent = 'Creating...';
+    try {
+        const res = await fetch('/api/trips', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!res.ok) {
+            throw new Error('create failed');
+        }
+        currentTrip = name;
+        localStorage.setItem('currentTrip', currentTrip);
+        await loadTrips();
+        await reloadData();
+        closeProjectModal();
+        showToast('Project created', 'success');
+    } catch (err) {
+        console.error('createProject error', err);
+        showToast('Could not create project', 'error', 1800);
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Create';
+    }
+}
+
+async function deleteCurrentProject() {
+    if (!currentTrip) {
+        showToast('No project selected', 'info');
+        return;
+    }
+    showConfirmation(`Delete project "${currentTrip}" and its files? This cannot be undone.`, async () => {
+        try {
+            const res = await fetch(`/api/trips/${encodeURIComponent(currentTrip)}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('delete failed');
+            localStorage.removeItem('currentTrip');
+            currentTrip = null;
+            await loadTrips();
+            if (!projects.length) {
+                openProjectModal(true);
+            }
+            showToast('Project deleted', 'success');
+        } catch (err) {
+            console.error('deleteCurrentProject error', err);
+            showToast('Failed to delete project', 'error');
+        }
+    });
+}
+
+async function reloadData() {
+    try {
+        // points
+        const ptsRes = await fetch(buildUrl('/api/points'));
+        const pts = await ptsRes.json();
+        points = (pts || []).map(convertPoint);
+        applyFilter();
+        fitMapToBounds();
+
+        // settings
+        const sres = await fetch(buildUrl('/api/settings'));
+        const s = await sres.json();
+        if (s) {
+            if (typeof s.maxDays === 'number') {
+                maxDays = s.maxDays;
+                localStorage.setItem('maxDays', maxDays);
+                renderCalendar();
+            }
+            if (typeof s.autoFetchImage !== 'undefined') {
+                autoFetchImage = !!s.autoFetchImage;
+                const cb = document.getElementById('settingsAutoFetch');
+                if (cb) cb.checked = autoFetchImage;
+            }
+        }
+
+        // tasks
+        const tres = await fetch(buildUrl('/api/tasks'));
+        const ts = await tres.json();
+        tasks = ts || [];
+        updateTasksList();
+    } catch (err) {
+        console.error('reloadData error', err);
+    }
 }
 
 // ============ CONFIRMATION MODAL ============
@@ -89,7 +289,7 @@ function hideConfirmation() {
 }
 
 // ============ MAP INIT ============
-function initMap() {
+async function initMap() {
     map = L.map('map', { 
         zoomControl: false, 
         maxBounds: [[-90, -180], [90, 180]],
@@ -112,56 +312,61 @@ function initMap() {
     if (window.io) {
         socket = io();
         socket.on('points_updated', (data) => {
-            points = (data || []).map(convertPoint);
+            // data may be {trip, points} or legacy array
+            if (!data) return;
+            if (Array.isArray(data)) {
+                // legacy
+                points = (data || []).map(convertPoint);
+                applyFilter();
+                return;
+            }
+            const trip = data.trip || null;
+            if (trip !== currentTrip) return; // ignore updates for other trips
+            points = (data.points || []).map(convertPoint);
             applyFilter();
         });
         socket.on('tasks_updated', (data) => {
-            tasks = data || [];
+            if (!data) return;
+            if (Array.isArray(data)) {
+                tasks = data || [];
+                updateTasksList();
+                return;
+            }
+            const trip = data.trip || null;
+            if (trip !== currentTrip) return;
+            tasks = data.tasks || [];
             updateTasksList();
         });
         socket.on('settings_updated', (s) => {
-            if (s && typeof s.maxDays === 'number') {
-                maxDays = s.maxDays;
+            // payload may be {trip, settings} or legacy settings object
+            if (!s) return;
+            let payload = s;
+            let trip = null;
+            if (s.trip !== undefined && s.settings !== undefined) {
+                trip = s.trip || null;
+                payload = s.settings;
+            }
+            if (trip !== currentTrip) return;
+            if (payload && typeof payload.maxDays === 'number') {
+                maxDays = payload.maxDays;
                 localStorage.setItem('maxDays', maxDays);
                 renderCalendar();
                 applyFilter();
             }
-            if (s && typeof s.autoFetchImage !== 'undefined') {
-                autoFetchImage = !!s.autoFetchImage;
+            if (payload && typeof payload.autoFetchImage !== 'undefined') {
+                autoFetchImage = !!payload.autoFetchImage;
                 const cb = document.getElementById('settingsAutoFetch');
                 if (cb) cb.checked = autoFetchImage;
             }
         });
     }
-
-    fetch('/api/points').then(r => r.json()).then(data => {
-        points = (data || []).map(convertPoint);
-        applyFilter();
-        // Smart map initialization: fit all points in view if they exist
-        fitMapToBounds();
-    }).catch(err => console.error('Failed to load points', err));
-
-    // load global settings from server
-    fetch('/api/settings').then(r => r.json()).then(s => {
-        if (s) {
-            if (typeof s.maxDays === 'number') {
-                maxDays = s.maxDays;
-                localStorage.setItem('maxDays', maxDays);
-                renderCalendar();
-            }
-            if (typeof s.autoFetchImage !== 'undefined') {
-                autoFetchImage = !!s.autoFetchImage;
-                const cb = document.getElementById('settingsAutoFetch');
-                if (cb) cb.checked = autoFetchImage;
-            }
-        }
-    }).catch(err => console.error('Failed to load settings', err));
-
-    // load tasks from server
-    fetch('/api/tasks').then(r => r.json()).then(data => {
-        tasks = data || [];
-        updateTasksList();
-    }).catch(err => console.error('Failed to load tasks', err));
+    // load available trips and then load data for the selected trip
+    const trips = await loadTrips();
+    if (currentTrip) {
+        await reloadData();
+    } else {
+        openProjectModal(true);
+    }
 
     map.on('contextmenu', onMapContextMenu);
 }
@@ -397,6 +602,7 @@ function showEditModal(point) {
 
 // ============ POINT OPERATIONS ============
 async function addPointFromForm() {
+    if (!ensureProjectSelected()) return;
     const name = document.getElementById('pointName').value.trim();
     let address = document.getElementById('pointAddress').value.trim();
     const dayVal = document.getElementById('pointDay').value.trim();
@@ -417,7 +623,7 @@ async function addPointFromForm() {
     addBtn.textContent = 'Geocoding...';
 
     try {
-        const geocoded = await geocodeAddress(address);
+            const geocoded = await geocodeAddress(address);
         if (!geocoded) {
             showToast('Could not find address. Please try a different one.', 'error');
             return;
@@ -433,7 +639,7 @@ async function addPointFromForm() {
             photo
         };
 
-        const res = await fetch('/api/points', {
+        const res = await fetch(buildUrl('/api/points'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -457,11 +663,12 @@ async function addPointFromForm() {
 }
 
 function removePoint(id) {
-    fetch(`/api/points/${id}`, { method: 'DELETE' })
+    fetch(buildUrl(`/api/points/${id}`), { method: 'DELETE' })
         .catch(err => console.error('Error removing point', err));
 }
 
 async function saveModalPoint() {
+    if (!ensureProjectSelected()) return;
     const saveBtn = document.getElementById('modalSave');
     const name = document.getElementById('modalName').value.trim();
     let address = document.getElementById('modalAddress').value.trim();
@@ -515,7 +722,7 @@ async function saveModalPoint() {
         const payload = { name, lat, lng, day, description, photo };
 
         const method = currentEditing ? 'PUT' : 'POST';
-        const url = currentEditing ? `/api/points/${currentEditing}` : '/api/points';
+        const url = currentEditing ? buildUrl(`/api/points/${currentEditing}`) : buildUrl('/api/points');
 
         const res = await fetch(url, {
             method,
@@ -562,6 +769,7 @@ function onMapContextMenu(e) {
 
 // ============ FILE OPERATIONS ============
 function downloadJSON() {
+    if (!ensureProjectSelected()) return;
     const data = JSON.stringify(points, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -574,6 +782,7 @@ function downloadJSON() {
 }
 
 function importJSON() {
+    if (!ensureProjectSelected()) return;
     const text = document.getElementById('importJsonText').value.trim();
     if (!text) {
         showToast('Paste some JSON', 'error');
@@ -582,7 +791,7 @@ function importJSON() {
     try {
         const arr = JSON.parse(text);
         if (!Array.isArray(arr)) throw new Error('Expected an array');
-        Promise.all(arr.map(p => fetch('/api/points', {
+        Promise.all(arr.map(p => fetch(buildUrl('/api/points'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: p.name || 'Imported', lat: p.lat, lng: p.lng, day: p.day || null, description: p.description || '', photo: p.photo || '' })
@@ -601,9 +810,10 @@ function importJSON() {
 }
 
 function clearAllPoints() {
+    if (!ensureProjectSelected()) return;
     showConfirmation('Clear all points? This cannot be undone.', () => {
         const ids = points.map(p => p.id);
-        Promise.all(ids.map(id => fetch(`/api/points/${id}`, { method: 'DELETE' })))
+        Promise.all(ids.map(id => fetch(buildUrl(`/api/points/${id}`), { method: 'DELETE' })))
             .catch(err => console.error('Error clearing points', err));
         closeAllMenus();
     });
@@ -611,7 +821,8 @@ function clearAllPoints() {
 }
 
 function clearAllTasks() {
-  showConfirmation('Clear all tasks? This cannot be undone.', () => {
+    if (!ensureProjectSelected()) return;
+    showConfirmation('Clear all tasks? This cannot be undone.', () => {
     const ids = (tasks || []).map(t => t.id);
     if (!ids.length) {
       showToast('No tasks to clear', 'info');
@@ -620,13 +831,13 @@ function clearAllTasks() {
     }
 
     Promise.all(
-      ids.map(id =>
-        fetch(`/api/tasks/${id}`, { method: 'DELETE' })
-          .then(res => {
-            if (!res.ok) throw new Error(`/api/tasks/${id} failed: ${res.status}`);
-            return res;
-          })
-      )
+            ids.map(id =>
+                fetch(buildUrl(`/api/tasks/${id}`), { method: 'DELETE' })
+                    .then(res => {
+                        if (!res.ok) throw new Error(`/api/tasks/${id} failed: ${res.status}`);
+                        return res;
+                    })
+            )
     )
     .then(() => {
       showToast('All tasks cleared', 'success');
@@ -643,7 +854,8 @@ function clearAllTasks() {
 }
 
 
-function organizeDays() {
+function atoss() {
+    if (!ensureProjectSelected()) return;
     const unscheduled = points.filter(p => p.day === null || p.day === undefined);
     if (unscheduled.length === 0) {
         showToast('All points are already scheduled!', 'info');
@@ -651,7 +863,7 @@ function organizeDays() {
         return;
     }
     showConfirmation(`Smart plan: group ${unscheduled.length} point(s) into ~${maxDays} clusters by location?`, () => {
-        fetch('/api/organize-days', {
+        fetch(buildUrl('/api/organize-days'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ maxDays })
@@ -664,7 +876,7 @@ function organizeDays() {
                 showToast(`Smart planning complete! Grouped ${data.points} point(s) into ${data.clusters} cluster(s)`, 'success');
             })
             .catch(err => {
-                console.error('organizeDays error:', err);
+                console.error('ATOSS error:', err);
                 showToast('Failed to organize points', 'error');
             })
             .finally(() => closeAllMenus());
@@ -674,6 +886,7 @@ function organizeDays() {
 
 // ============ SETTINGS ============
 function openModalSettings() {
+    if (!ensureProjectSelected()) return;
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
     document.getElementById('settingsMaxDays').value = maxDays;
@@ -708,7 +921,7 @@ function saveSettings() {
     const v = parseInt(document.getElementById('settingsMaxDays').value, 10) || 7;
     const auto = !!(document.getElementById('settingsAutoFetch') && document.getElementById('settingsAutoFetch').checked);
     // send updated setting to server, which will broadcast to other clients
-    fetch('/api/settings', {
+    fetch(buildUrl('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ maxDays: v, autoFetchImage: auto })
@@ -729,6 +942,7 @@ function saveSettings() {
 }
 
 function openImportModal() {
+    if (!ensureProjectSelected()) return;
     const modal = document.getElementById('importModal');
     modal.classList.remove('hidden');
     const textarea = document.getElementById('importJsonText'); 
@@ -836,6 +1050,7 @@ function switchTab(tabName) {
 
 // ============ TASK LIST FUNCTIONS ============
 async function addTaskFromForm() {
+    if (!ensureProjectSelected()) return;
     const title = document.getElementById('taskTitle').value.trim();
     const dueDate = document.getElementById('taskDueDate').value;
 
@@ -850,7 +1065,7 @@ async function addTaskFromForm() {
     };
 
     try {
-        const res = await fetch('/api/tasks', {
+        const res = await fetch(buildUrl('/api/tasks'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -867,7 +1082,8 @@ async function addTaskFromForm() {
 }
 
 function removeTask(id) {
-    fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+    if (!ensureProjectSelected()) return;
+    fetch(buildUrl(`/api/tasks/${id}`), { method: 'DELETE' })
         .catch(err => console.error('Error removing task', err));
 }
 
@@ -876,7 +1092,7 @@ function toggleTaskComplete(id) {
     if (!task) return;
 
     const payload = { completed: !task.completed };
-    fetch(`/api/tasks/${id}`, {
+    fetch(buildUrl(`/api/tasks/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1011,8 +1227,8 @@ function handleJsonImport(content) {
     return showToast('Invalid JSON format', 'error');
   }
 
-  // Send to server
-  fetch('/api/tasks/import', {
+    // Send to server
+    fetch(buildUrl('/api/tasks/import'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(importedTasks)
@@ -1030,6 +1246,7 @@ function handleJsonImport(content) {
 }
 
 function exportTasks() {
+    if (!ensureProjectSelected()) return;
     const data = JSON.stringify(tasks, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1178,6 +1395,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Menu items (from top menu bar)
     const fileMenu = document.getElementById('fileMenu');
+    const openProjectManagerItem = document.getElementById('openProjectManagerItem');
     const toolsMenu = document.getElementById('toolsMenu');
     const organizeMenu = document.getElementById('organizeMenu');
     
@@ -1193,6 +1411,10 @@ document.addEventListener('DOMContentLoaded', function() {
             filePopup.classList.remove('hidden');
             currentOpenMenu = 'file';
         }
+    });
+    if (openProjectManagerItem) openProjectManagerItem.addEventListener('click', () => {
+        openProjectModal(true);
+        closeAllMenus();
     });
     if (toolsMenu) toolsMenu.addEventListener('click', (e) => { 
         e.preventDefault(); 
@@ -1221,6 +1443,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    const deleteProjectItem = document.getElementById('deleteProjectItem');
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
     const importTasksItem = document.getElementById('importTasksItem');
@@ -1231,7 +1454,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const taskListTab = document.getElementById('taskListTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
     const settingsItem = document.getElementById('settingsItem');
+    const createProjectSave = document.getElementById('createProjectSave');
+    const createProjectCancel = document.getElementById('createProjectCancel');
 
+    if (deleteProjectItem) deleteProjectItem.addEventListener('click', () => { deleteCurrentProject(); closeAllMenus(); });
     if (exportJsonItem) exportJsonItem.addEventListener('click', downloadJSON);
     if (importJsonItem) importJsonItem.addEventListener('click', openImportModal);
     if (importTasksItem) importTasksItem.addEventListener('click', importTasks);
@@ -1240,8 +1466,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (clearAllTasksItem) clearAllTasksItem.addEventListener('click', clearAllTasks);
     if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
-    if (organizeDaysItem) organizeDaysItem.addEventListener('click', organizeDays);
+    if (organizeDaysItem) organizeDaysItem.addEventListener('click', atoss);
     if (settingsItem) settingsItem.addEventListener('click', openModalSettings);
+    if (createProjectSave) createProjectSave.addEventListener('click', createProject);
+    if (createProjectCancel) createProjectCancel.addEventListener('click', closeProjectModal);
 
     // Close menus when clicking elsewhere
     document.addEventListener('click', closeAllMenus);

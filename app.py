@@ -10,30 +10,57 @@ from clens import get_best_image
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
 socketio = SocketIO(app, cors_allowed_origins='*')
+JSON_DIR = os.path.join(os.path.dirname(__file__), 'json')
+if not os.path.exists(JSON_DIR):
+    try:
+        os.makedirs(JSON_DIR)
+    except Exception:
+        pass
 
+# Default files at repository root for single-project compatibility
 POINTS_FILE = os.path.join(os.path.dirname(__file__), 'points.json')
 TASKS_FILE = os.path.join(os.path.dirname(__file__), 'tasks.json')
+
+
+def _sanitize_trip_name(name: str) -> str:
+    # allow letters, numbers, hyphen and underscore
+    return ''.join(c for c in (name or '') if (c.isalnum() or c in ('-', '_')))
+
+
+def resolve_points_file(trip: str | None):
+    if not trip:
+        return POINTS_FILE
+    name = _sanitize_trip_name(trip)
+    return os.path.join(JSON_DIR, f"{name}-points.json")
+
+
+def resolve_tasks_file(trip: str | None):
+    if not trip:
+        return TASKS_FILE
+    name = _sanitize_trip_name(trip)
+    return os.path.join(JSON_DIR, f"{name}-tasks.json")
 lock = threading.Lock()
 
-def load_points():
-    data = load_storage()
+def load_points(trip: str | None = None):
+    data = load_storage(trip)
     return data.get('points', [])
 
-def save_points(points):
-    cur = load_storage()
-    save_storage(points, cur.get('settings'))
+def save_points(points, trip: str | None = None):
+    cur = load_storage(trip)
+    save_storage(points, cur.get('settings'), trip)
 
 
-def load_storage():
+def load_storage(trip: str | None = None):
     """Load the raw storage object from disk.
 
     The file may be missing, or could contain an old list of points.  We
     normalize it to a dict of the form ``{'points': [...], 'settings': {...}}``.
     """
 
-    if not os.path.exists(POINTS_FILE):
+    points_path = resolve_points_file(trip)
+    if not os.path.exists(points_path):
         return {'points': [], 'settings': {'maxDays': 7, 'autoFetchImage': False}}
-    with open(POINTS_FILE, 'r', encoding='utf-8') as f:
+    with open(points_path, 'r', encoding='utf-8') as f:
         try:
             data = json.load(f)
         except Exception:
@@ -55,32 +82,52 @@ def load_storage():
         return {'points': [], 'settings': {'maxDays': 7}}
 
 
-def save_storage(points, settings=None):
+def save_storage(points, settings=None, trip: str | None = None):
     payload = {'points': points}
     if settings is not None:
         payload['settings'] = settings
     else:
         # preserve existing
-        payload['settings'] = load_storage().get('settings', {'maxDays': 7})
-    with open(POINTS_FILE, 'w', encoding='utf-8') as f:
+        payload['settings'] = load_storage(trip).get('settings', {'maxDays': 7})
+    points_path = resolve_points_file(trip)
+    # ensure containing dir exists
+    d = os.path.dirname(points_path)
+    if d and not os.path.exists(d):
+        try:
+            os.makedirs(d)
+        except Exception:
+            pass
+    with open(points_path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, indent=2)
 
 
-def load_settings():
-    return load_storage().get('settings', {'maxDays': 7})
+def load_settings(trip: str | None = None):
+    return load_storage(trip).get('settings', {'maxDays': 7})
 
 
-def save_settings(settings):
-    pts = load_storage().get('points', [])
-    save_storage(pts, settings)
+def save_settings(settings, trip: str | None = None):
+    pts = load_storage(trip).get('points', [])
+    save_storage(pts, settings, trip)
+
+
+def require_trip_param():
+    raw = request.args.get('trip', '') or ''
+    raw = raw.strip()
+    if not raw:
+        return None, jsonify({'error': 'trip parameter required'}), 400
+    clean = _sanitize_trip_name(raw)
+    if not clean or clean != raw:
+        return None, jsonify({'error': 'invalid trip parameter'}), 400
+    return clean, None, None
 
 
 # ============ TASKS MANAGEMENT ============
-def load_tasks():
+def load_tasks(trip: str | None = None):
     """Load tasks from disk. Returns a list of task objects."""
-    if not os.path.exists(TASKS_FILE):
+    tasks_path = resolve_tasks_file(trip)
+    if not os.path.exists(tasks_path):
         return []
-    with open(TASKS_FILE, 'r', encoding='utf-8') as f:
+    with open(tasks_path, 'r', encoding='utf-8') as f:
         try:
             data = json.load(f)
             return data if isinstance(data, list) else []
@@ -88,9 +135,16 @@ def load_tasks():
             return []
 
 
-def save_tasks(tasks):
+def save_tasks(tasks, trip: str | None = None):
     """Save tasks to disk."""
-    with open(TASKS_FILE, 'w', encoding='utf-8') as f:
+    tasks_path = resolve_tasks_file(trip)
+    d = os.path.dirname(tasks_path)
+    if d and not os.path.exists(d):
+        try:
+            os.makedirs(d)
+        except Exception:
+            pass
+    with open(tasks_path, 'w', encoding='utf-8') as f:
         json.dump(tasks, f, indent=2)
 
 
@@ -185,13 +239,19 @@ def help_page():
 @app.route('/api/settings', methods=['GET'])
 def api_get_settings():
     """Return the global settings (currently only maxDays)."""
-    settings = load_settings()
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    settings = load_settings(trip)
     return jsonify(settings)
 
 @app.route('/api/settings', methods=['POST'])
 def api_update_settings():
     data = request.get_json() or {}
-    settings = load_settings()
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    settings = load_settings(trip)
     if 'maxDays' in data:
         try:
             settings['maxDays'] = int(data['maxDays'])
@@ -206,14 +266,17 @@ def api_update_settings():
                 settings['autoFetchImage'] = str(val).lower() in ('1', 'true', 'yes', 'on')
             except Exception:
                 settings['autoFetchImage'] = False
-    save_settings(settings)
+    save_settings(settings, trip)
     # broadcast to all clients so their calendars update
-    socketio.emit('settings_updated', settings)
+    socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
     return jsonify({'status': 'updated', 'settings': settings})
 
 @app.route('/api/points', methods=['GET'])
 def api_get_points():
-    points = load_points()
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    points = load_points(trip)
     return jsonify(points)
 
 @app.route('/api/points', methods=['POST'])
@@ -225,8 +288,11 @@ def api_add_point():
     if name is None or lat is None or lng is None:
         return jsonify({'error': 'missing fields'}), 400
 
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        points = load_points()
+        points = load_points(trip)
         day = data.get('day')
         if day == '' or day is None:
             day = None
@@ -246,8 +312,8 @@ def api_add_point():
             'photo': data.get('photo', ''),
             'created': time.time()
         }
-        # If photo is empty and auto-fetch is enabled, attempt to fetch
-        settings = load_settings()
+        # If photo is empty and auto-fetch is enabled for this trip, attempt to fetch
+        settings = load_settings(trip)
         try:
             if (not point.get('photo')) and settings.get('autoFetchImage'):
                 try:
@@ -267,30 +333,36 @@ def api_add_point():
         # locations rather than being left behind.
         if point['day'] is not None:
             propagate_day(point, point['day'], points)
-        save_points(points)
+        save_points(points, trip)
 
-    # broadcast updated list (emit to all clients)
-    socketio.emit('points_updated', points)
+    # broadcast updated list (emit to all clients) with trip info
+    socketio.emit('points_updated', {'trip': trip, 'points': points})
     return jsonify(point), 201
 
 @app.route('/api/points/<int:pid>', methods=['DELETE'])
 def api_delete_point(pid):
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        points = load_points()
+        points = load_points(trip)
         new_points = [p for p in points if p.get('id') != pid]
         if len(new_points) == len(points):
             return jsonify({'error': 'not found'}), 404
-        save_points(new_points)
+        save_points(new_points, trip)
 
-    socketio.emit('points_updated', new_points)
+    socketio.emit('points_updated', {'trip': trip, 'points': new_points})
     return jsonify({'status': 'deleted'})
 
 
 @app.route('/api/points/<int:pid>', methods=['PUT'])
 def api_update_point(pid):
     data = request.get_json() or {}
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        points = load_points()
+        points = load_points(trip)
         updated = False
         for p in points:
             if p.get('id') == pid:
@@ -314,6 +386,16 @@ def api_update_point(pid):
                     p['description'] = data['description']
                 if 'photo' in data:
                     p['photo'] = data['photo']
+                # If photo is blank and auto-fetch is enabled for this trip,
+                # try to obtain an image automatically.
+                settings = load_settings(trip)
+                if (not p.get('photo')) and settings.get('autoFetchImage'):
+                    try:
+                        img = get_best_image(p.get('name') or '')
+                        if img:
+                            p['photo'] = img
+                    except Exception:
+                        pass
                 # if the day has been set or changed to a non-null value,
                 # propagate to nearby unscheduled points as above
                 if 'day' in data and p.get('day') is not None:
@@ -322,16 +404,19 @@ def api_update_point(pid):
                 break
         if not updated:
             return jsonify({'error': 'not found'}), 404
-        save_points(points)
+        save_points(points, trip)
 
-    socketio.emit('points_updated', points)
+    socketio.emit('points_updated', {'trip': trip, 'points': points})
     return jsonify({'status': 'updated'})
 
 @app.route('/api/organize-days', methods=['POST'])
 def api_organize_days():
     """Smart clustering: group unscheduled points by distance into N clusters (N = max_days setting)."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        points = load_points()
+        points = load_points(trip)
         unscheduled = [p for p in points if p.get('day') is None or p.get('day') == '']
         
         if not unscheduled:
@@ -339,25 +424,28 @@ def api_organize_days():
         
         # Get max days from request or default to 7
         data = request.get_json() or {}
-        # override with global setting if not provided
+        # override with trip-specific setting if not provided
         max_days = data.get('maxDays')
         if max_days is None:
-            max_days = load_settings().get('maxDays', 7)
+            max_days = load_settings(trip).get('maxDays', 7)
         num_clusters = min(max_days, len(unscheduled))
         
         # run clustering helper which mutates the points in-place
         clusters = cluster_points_by_distance(unscheduled, num_clusters)
         # cluster_points_by_distance already assigns day numbers
         
-        save_points(points)
-    socketio.emit('points_updated', points)
+        save_points(points, trip)
+    socketio.emit('points_updated', {'trip': trip, 'points': points})
     return jsonify({'status': 'organized', 'clusters': num_clusters, 'points': len(unscheduled)})
 
 # ============ TASKS API ENDPOINTS ============
 @app.route('/api/tasks', methods=['GET'])
 def api_get_tasks():
     """Retrieve all tasks."""
-    tasks = load_tasks()
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    tasks = load_tasks(trip)
     return jsonify(tasks)
 
 @app.route('/api/tasks', methods=['POST'])
@@ -368,9 +456,12 @@ def api_add_task():
     
     if not title:
         return jsonify({'error': 'title is required'}), 400
-    
+
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        tasks = load_tasks()
+        tasks = load_tasks(trip)
         task = {
             'id': int(time.time() * 1000),
             'title': title,
@@ -379,9 +470,9 @@ def api_add_task():
             'created': time.time()
         }
         tasks.append(task)
-        save_tasks(tasks)
-    
-    socketio.emit('tasks_updated', tasks)
+        save_tasks(tasks, trip)
+
+    socketio.emit('tasks_updated', {'trip': trip, 'tasks': tasks})
     return jsonify(task), 201
 
 @app.route('/api/tasks/<int:tid>', methods=['PUT'])
@@ -389,8 +480,11 @@ def api_update_task(tid):
     """Update a task."""
     data = request.get_json() or {}
     
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        tasks = load_tasks()
+        tasks = load_tasks(trip)
         updated = False
         for t in tasks:
             if t.get('id') == tid:
@@ -406,36 +500,42 @@ def api_update_task(tid):
         if not updated:
             return jsonify({'error': 'not found'}), 404
         
-        save_tasks(tasks)
+        save_tasks(tasks, trip)
     
-    socketio.emit('tasks_updated', tasks)
+    socketio.emit('tasks_updated', {'trip': trip, 'tasks': tasks})
     return jsonify({'status': 'updated'})
 
 @app.route('/api/tasks/<int:tid>', methods=['DELETE'])
 def api_delete_task(tid):
     """Delete a task."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     with lock:
-        tasks = load_tasks()
+        tasks = load_tasks(trip)
         new_tasks = [t for t in tasks if t.get('id') != tid]
         
         if len(new_tasks) == len(tasks):
             return jsonify({'error': 'not found'}), 404
         
-        save_tasks(new_tasks)
+        save_tasks(new_tasks, trip)
     
-    socketio.emit('tasks_updated', new_tasks)
+    socketio.emit('tasks_updated', {'trip': trip, 'tasks': new_tasks})
     return jsonify({'status': 'deleted'})
 
 @app.route('/api/tasks/import', methods=['POST'])
 def api_import_tasks():
     """Import a list of tasks."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
     imported_tasks = request.get_json() or []
     
     if not isinstance(imported_tasks, list):
         return jsonify({'error': 'invalid format, expected a list of tasks'}), 400
 
     with lock:
-        tasks = load_tasks()
+        tasks = load_tasks(trip)
         new_tasks = []
         for task_data in imported_tasks:
             title = task_data.get('title')
@@ -452,18 +552,82 @@ def api_import_tasks():
             new_tasks.append(task)
         
         tasks.extend(new_tasks)
-        save_tasks(tasks)
+        save_tasks(tasks, trip)
     
-    socketio.emit('tasks_updated', tasks)
+    socketio.emit('tasks_updated', {'trip': trip, 'tasks': tasks})
     return jsonify({'status': 'imported', 'count': len(new_tasks)}), 201
+
+
+@app.route('/api/trips', methods=['GET'])
+def api_list_trips():
+    """List available trips by scanning the `json/` folder for *-points.json files."""
+    trips = []
+    try:
+        if os.path.exists(JSON_DIR):
+            for fn in os.listdir(JSON_DIR):
+                if fn.endswith('-points.json'):
+                    name = fn[:-len('-points.json')]
+                    path = os.path.join(JSON_DIR, fn)
+                    mtime = os.path.getmtime(path)
+                    trips.append({'name': name, 'modified': mtime})
+    except Exception:
+        pass
+    return jsonify(trips)
+
+
+@app.route('/api/trips', methods=['POST'])
+def api_create_trip():
+    data = request.get_json() or {}
+    name = data.get('name')
+    if not name:
+        return jsonify({'error': 'name required'}), 400
+    clean = _sanitize_trip_name(name)
+    if not clean:
+        return jsonify({'error': 'invalid name'}), 400
+    points_path = resolve_points_file(clean)
+    tasks_path = resolve_tasks_file(clean)
+    # create empty files if not exist
+    try:
+        if not os.path.exists(points_path):
+            with open(points_path, 'w', encoding='utf-8') as f:
+                json.dump({'points': [] , 'settings': {'maxDays': 7, 'autoFetchImage': False}}, f, indent=2)
+        if not os.path.exists(tasks_path):
+            with open(tasks_path, 'w', encoding='utf-8') as f:
+                json.dump([], f, indent=2)
+    except Exception as e:
+        return jsonify({'error': 'could not create files', 'detail': str(e)}), 500
+    return jsonify({'status': 'created', 'name': clean}), 201
+
+
+@app.route('/api/trips/<trip_name>', methods=['DELETE'])
+def api_delete_trip(trip_name):
+    clean = _sanitize_trip_name(trip_name)
+    if not clean:
+        return jsonify({'error': 'invalid name'}), 400
+    points_path = resolve_points_file(clean)
+    tasks_path = resolve_tasks_file(clean)
+    errors = []
+    try:
+        if os.path.exists(points_path):
+            os.remove(points_path)
+    except Exception as e:
+        errors.append(str(e))
+    try:
+        if os.path.exists(tasks_path):
+            os.remove(tasks_path)
+    except Exception as e:
+        errors.append(str(e))
+    if errors:
+        return jsonify({'error': 'failed', 'detail': errors}), 500
+    return jsonify({'status': 'deleted', 'name': clean})
 
 @socketio.on('connect')
 def handle_connect():
     # send current points and tasks to newly connected client
     points = load_points()
     tasks = load_tasks()
-    socketio.emit('points_updated', points)
-    socketio.emit('tasks_updated', tasks)
+    socketio.emit('points_updated', {'trip': None, 'points': points})
+    socketio.emit('tasks_updated', {'trip': None, 'tasks': tasks})
 
 if __name__ == '__main__':
     # Use socketio.run for real-time support

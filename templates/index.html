@@ -21,6 +21,8 @@
                 <li class="logo">Compass</li>
                 <li><a href="#" id="fileMenu">File</a>
                     <div id="fileMenuPopup" class="menu-popup hidden">
+                        <div class="menu-item" id="openProjectManagerItem">Project</div>
+                        <!-- <div style="height:1px;background:var(--border-color);margin:0.35rem 0;"></div> -->
                         <div class="menu-item" id="importJsonItem">Import Points</div>
                         <div class="menu-item" id="exportJsonItem">Export Points</div>
                         <div class="menu-item" id="importTasksItem">Import Tasks</div>
@@ -33,7 +35,7 @@
                     <div id="toolsMenuPopup" class="menu-popup hidden">
                         <div class="menu-item" id="mapPointsTab">Map Points</div>
                         <div class="menu-item" id="taskListTab">Task List</div>
-                        <div class="menu-item" id="organizeDaysItem">Auto-Schedule</div>
+                        <div class="menu-item" id="organizeDaysItem">ATOSS</div>
                         <div class="menu-item" id="settingsItem">Settings</div>
                     </div>
                 </li>
@@ -162,6 +164,27 @@
             <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
                 <button id="importSave" class="action-btn add-btn">Import</button>
                 <button id="importCancel" class="action-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Modal -->
+    <div id="projectModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 560px;">
+            <h2>Manage Projects</h2>
+            <div style="margin-bottom:1rem; font-size:0.9rem; color:var(--text-2);">Open an existing project or create a new one.</div>
+            <div style="margin-bottom:1rem;">
+                <div style="font-size:0.95rem; color:var(--text-2); font-weight:600; margin-bottom:0.5rem;">Open Project</div>
+                <div id="projectList" style="display:flex; flex-direction:column; gap:0.5rem; max-height:220px; overflow:auto;"></div>
+            </div>
+            <div style="margin-bottom:1rem; border-top:1px solid var(--border-color); padding-top:1rem;">
+                <label>New project name:<br><input type="text" id="projectNameInput" class="input-field" placeholder="e.g. japan" autocomplete="off"></label>
+                <p style="font-size:0.85rem;color:var(--text-2);margin-top:0.5rem;">Use letters, numbers, hyphen, or underscore.</p>
+            </div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
+                <button id="createProjectSave" class="action-btn add-btn">Create</button>
+                <button id="deleteProjectItem" class="action-btn" style="background:#ff6b6b;color:#fff;border-color:#ff6b6b;opacity:0.4;pointer-events:none;">Delete Current Project</button>
+                <button id="createProjectCancel" class="action-btn">Close</button>
             </div>
         </div>
     </div>
