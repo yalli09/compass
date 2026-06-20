@@ -471,7 +471,7 @@ function updatePointsList() {
         btn.textContent = '×';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            removePoint(point.id);
+            deleteListPoint(point.id, point.name);
         });
         li.appendChild(info);
         li.appendChild(btn);
@@ -665,6 +665,12 @@ async function addPointFromForm() {
 function removePoint(id) {
     fetch(buildUrl(`/api/points/${id}`), { method: 'DELETE' })
         .catch(err => console.error('Error removing point', err));
+}
+
+function deleteListPoint(id, name) {
+    showConfirmation(`Do you want to delete this point? (${escapeHtml(name)})`, () => {
+        removePoint(id);
+    });
 }
 
 async function saveModalPoint() {
