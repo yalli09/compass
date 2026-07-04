@@ -536,6 +536,19 @@ function updatePointsList() {
             if (marker) {
                 marker.openPopup();
             }
+            // On mobile, close the sidebar once the point is selected so the map is fully visible
+            const mobileSidebar = document.querySelector('.sidebar');
+            if (window.innerWidth <= 768 && mobileSidebar && !mobileSidebar.classList.contains('hidden-mobile')) {
+                const toggle = document.getElementById('sidebarToggle');
+                mobileSidebar.classList.add('hidden-mobile');
+                document.body.classList.remove('menu-open');
+                if (toggle) {
+                    toggle.setAttribute('aria-expanded', 'false');
+                    toggle.textContent = '☰';
+                    toggle.classList.remove('open');
+                }
+                adjustMapHeight();
+            }
         });
         
         // Right click: open edit modal
@@ -1488,22 +1501,60 @@ document.addEventListener('DOMContentLoaded', function() {
     applyFilter();
     updateTasksList();
 
+    // Keep the mobile viewport unit updated for the map container
+    function refreshViewportHeight() {
+        document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
+    }
+
     // Ensure map height and Leaflet sizing behave properly on mobile/resizes
     function adjustMapHeight() {
+        refreshViewportHeight();
         const header = document.querySelector('.menu');
         const mapWrapper = document.querySelector('.map-wrapper');
         const headerH = header ? header.offsetHeight : 0;
         if (!mapWrapper) return;
-        // On narrow viewports (mobile), make the map fill the remaining viewport
-        if (window.innerWidth <= 768) {
-            mapWrapper.style.height = (window.innerHeight - headerH) + 'px';
+
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile) {
+            mapWrapper.style.position = 'fixed';
+            mapWrapper.style.top = `${headerH}px`;
+            mapWrapper.style.left = '0';
+            mapWrapper.style.right = '0';
+            mapWrapper.style.bottom = '0';
+            mapWrapper.style.width = '100%';
+            mapWrapper.style.maxWidth = '100vw';
+            mapWrapper.style.minWidth = '100vw';
+            mapWrapper.style.height = `${window.innerHeight - headerH}px`;
+            mapWrapper.style.minHeight = `${window.innerHeight - headerH}px`;
+            mapWrapper.style.overflow = 'hidden';
+            mapWrapper.style.overflowX = 'hidden';
+            mapWrapper.style.overflowY = 'hidden';
+
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.maxWidth = '100vw';
         } else {
-            // let CSS handle desktop heights
+            mapWrapper.style.position = '';
+            mapWrapper.style.top = '';
+            mapWrapper.style.left = '';
+            mapWrapper.style.right = '';
+            mapWrapper.style.bottom = '';
+            mapWrapper.style.width = '';
+            mapWrapper.style.maxWidth = '';
+            mapWrapper.style.minWidth = '';
             mapWrapper.style.height = '';
+            mapWrapper.style.minHeight = '';
+            mapWrapper.style.overflow = '';
+            mapWrapper.style.overflowX = '';
+            mapWrapper.style.overflowY = '';
+
+            document.body.style.overflow = '';
+            document.documentElement.style.overflow = '';
+            document.body.style.maxWidth = '';
         }
+
         if (map) {
-            // allow layout to settle then invalidate Leaflet size
-            setTimeout(() => map.invalidateSize(), 120);
+            setTimeout(() => map.invalidateSize(true), 120);
         }
     }
 
@@ -1512,6 +1563,53 @@ document.addEventListener('DOMContentLoaded', function() {
     // update on resize / orientation change
     window.addEventListener('resize', adjustMapHeight);
     window.addEventListener('orientationchange', adjustMapHeight);
+
+    // Mobile menu open/close behavior
+    const toggleBtn = document.getElementById('sidebarToggle');
+    const sidebar = document.querySelector('.sidebar');
+
+    const closeSidebar = () => {
+        if (!sidebar) return;
+        sidebar.classList.add('hidden-mobile');
+        document.body.classList.remove('menu-open');
+        if (toggleBtn) {
+            toggleBtn.setAttribute('aria-expanded', 'false');
+            toggleBtn.textContent = '☰';
+            toggleBtn.classList.remove('open');
+        }
+        adjustMapHeight();
+    };
+
+    const openSidebar = () => {
+        if (!sidebar) return;
+        sidebar.classList.remove('hidden-mobile');
+        document.body.classList.add('menu-open');
+        if (toggleBtn) {
+            toggleBtn.setAttribute('aria-expanded', 'true');
+            toggleBtn.textContent = '×';
+            toggleBtn.classList.add('open');
+        }
+        adjustMapHeight();
+    };
+
+    if (toggleBtn && sidebar) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (sidebar.classList.contains('hidden-mobile')) {
+                openSidebar();
+            } else {
+                closeSidebar();
+            }
+        });
+    }
+
+    document.addEventListener('click', (e) => {
+        if (window.innerWidth <= 768 && sidebar && !sidebar.classList.contains('hidden-mobile')) {
+            if (!sidebar.contains(e.target) && e.target !== toggleBtn) {
+                closeSidebar();
+            }
+        }
+    });
 
     // Global keyboard handler for menus
     document.addEventListener('keydown', (e) => {
@@ -1701,19 +1799,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.menu-popup').forEach(f => {
         f.addEventListener('click', e => e.stopPropagation());
     });
-
-    // Mobile sidebar toggle
-    const toggleBtn = document.getElementById('sidebarToggle');
-    const sidebar = document.querySelector('.sidebar');
-    if (toggleBtn && sidebar) {
-        toggleBtn.addEventListener('click', () => {
-            sidebar.classList.toggle('hidden-mobile');
-            // Adjust layout and notify the map that its container size has changed
-            setTimeout(() => {
-                adjustMapHeight();
-            }, 300);
-        });
-    }
 });
 
 window.removePoint = removePoint;

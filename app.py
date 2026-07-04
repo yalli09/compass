@@ -9,7 +9,9 @@ from clens import get_best_image
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
-socketio = SocketIO(app, cors_allowed_origins='*')
+# Use threading async mode on Windows to avoid Eventlet connection shutdown noise.
+# Flask-SocketIO can still handle real-time updates while using the built-in thread pool.
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading', logger=False, engineio_logger=False)
 JSON_DIR = os.path.join(os.path.dirname(__file__), 'json')
 if not os.path.exists(JSON_DIR):
     try:

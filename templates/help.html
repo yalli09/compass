@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="help-page">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -98,6 +98,22 @@
             text-decoration: underline;
         }
 
+        html,
+        body {
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            height: auto !important;
+            min-height: 100% !important;
+            touch-action: auto !important;
+            overscroll-behavior: auto !important;
+        }
+
+        .help-container {
+            position: relative;
+            min-height: auto;
+            height: auto;
+        }
+
         .section-divider {
             height: 1px;
             background: var(--border-color);
@@ -188,7 +204,7 @@
         }
     </style>
 </head>
-<body>
+<body class="help-page">
     <header class="menu">
         <nav>
             <ul class="top-menu">
