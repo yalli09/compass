@@ -39,6 +39,40 @@ def resolve_tasks_file(trip: str | None):
         return TASKS_FILE
     name = _sanitize_trip_name(trip)
     return os.path.join(JSON_DIR, f"{name}-tasks.json")
+
+
+def default_categories():
+    return [
+        {'id': 'point', 'name': 'Point', 'color': '#1788f7'},
+        {'id': 'hotel', 'name': 'Hotel', 'color': '#ff6b6b'},
+        {'id': 'food', 'name': 'Food', 'color': '#f1c40f'},
+    ]
+
+
+def normalize_categories(categories):
+    if not isinstance(categories, list):
+        return default_categories()
+    seen = set()
+    normalized = []
+    for raw in categories:
+        if not isinstance(raw, dict):
+            continue
+        cat_id = str(raw.get('id') or raw.get('name') or '').strip().lower()
+        cat_id = ''.join(c for c in cat_id if c.isalnum() or c in ('-', '_'))
+        if not cat_id or cat_id in seen:
+            continue
+        seen.add(cat_id)
+        name = str(raw.get('name') or cat_id).strip() or cat_id
+        color = str(raw.get('color') or '').strip() or '#1788f7'
+        if not color.startswith('#'):
+            color = '#' + color.lstrip('#')
+        normalized.append({'id': cat_id, 'name': name, 'color': color})
+    if not normalized:
+        return default_categories()
+    if 'point' not in seen:
+        normalized.insert(0, default_categories()[0])
+    return normalized
+
 lock = threading.Lock()
 
 def load_points(trip: str | None = None):
@@ -59,15 +93,36 @@ def load_storage(trip: str | None = None):
 
     points_path = resolve_points_file(trip)
     if not os.path.exists(points_path):
-        return {'points': [], 'settings': {'maxDays': 7, 'autoFetchImage': False}}
+        return {
+            'points': [],
+            'settings': {
+                'maxDays': 7,
+                'autoFetchImage': False,
+                'categories': default_categories()
+            }
+        }
     with open(points_path, 'r', encoding='utf-8') as f:
         try:
             data = json.load(f)
         except Exception:
-            return {'points': [], 'settings': {'maxDays': 7}}
+            return {
+                'points': [],
+                'settings': {
+                    'maxDays': 7,
+                    'autoFetchImage': False,
+                    'categories': default_categories()
+                }
+            }
     if isinstance(data, list):
         # legacy file containing just points
-        return {'points': data, 'settings': {'maxDays': 7, 'autoFetchImage': False}}
+        return {
+            'points': data,
+            'settings': {
+                'maxDays': 7,
+                'autoFetchImage': False,
+                'categories': default_categories()
+            }
+        }
     elif isinstance(data, dict):
         pts = data.get('points', [])
         settings = data.get('settings', {})
@@ -77,9 +132,17 @@ def load_storage(trip: str | None = None):
         # ensure default for auto-fetch image setting
         if 'autoFetchImage' not in settings:
             settings['autoFetchImage'] = False
+        settings['categories'] = normalize_categories(settings.get('categories', default_categories()))
         return {'points': pts, 'settings': settings}
     else:
-        return {'points': [], 'settings': {'maxDays': 7}}
+        return {
+            'points': [],
+            'settings': {
+                'maxDays': 7,
+                'autoFetchImage': False,
+                'categories': default_categories()
+            }
+        }
 
 
 def save_storage(points, settings=None, trip: str | None = None):
@@ -266,6 +329,8 @@ def api_update_settings():
                 settings['autoFetchImage'] = str(val).lower() in ('1', 'true', 'yes', 'on')
             except Exception:
                 settings['autoFetchImage'] = False
+    if 'categories' in data and isinstance(data['categories'], list):
+        settings['categories'] = normalize_categories(data['categories'])
     save_settings(settings, trip)
     # broadcast to all clients so their calendars update
     socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
@@ -301,6 +366,10 @@ def api_add_point():
                 day = int(day)
             except:
                 day = None
+        category_id = data.get('categoryId')
+        if not category_id:
+            category_id = 'point'
+        category_id = str(category_id)
         
         point = {
             'id': int(time.time() * 1000),
@@ -310,6 +379,7 @@ def api_add_point():
             'day': day,
             'description': data.get('description', ''),
             'photo': data.get('photo', ''),
+            'categoryId': category_id,
             'created': time.time()
         }
         # If photo is empty and auto-fetch is enabled for this trip, attempt to fetch
@@ -386,6 +456,9 @@ def api_update_point(pid):
                     p['description'] = data['description']
                 if 'photo' in data:
                     p['photo'] = data['photo']
+                if 'categoryId' in data:
+                    category_id = data.get('categoryId')
+                    p['categoryId'] = str(category_id) if category_id else 'point'
                 # If photo is blank and auto-fetch is enabled for this trip,
                 # try to obtain an image automatically.
                 settings = load_settings(trip)
@@ -590,7 +663,7 @@ def api_create_trip():
     try:
         if not os.path.exists(points_path):
             with open(points_path, 'w', encoding='utf-8') as f:
-                json.dump({'points': [] , 'settings': {'maxDays': 7, 'autoFetchImage': False}}, f, indent=2)
+                json.dump({'points': [], 'settings': {'maxDays': 7, 'autoFetchImage': False, 'categories': default_categories()}}, f, indent=2)
         if not os.path.exists(tasks_path):
             with open(tasks_path, 'w', encoding='utf-8') as f:
                 json.dump([], f, indent=2)

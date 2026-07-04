@@ -9,6 +9,8 @@ let tasks = [];
 
 let maxDays = localStorage.getItem('maxDays') ? parseInt(localStorage.getItem('maxDays')) : 7;
 let selectedOffset = null; // null = show all
+let selectedCategoryFilter = null; // null = show all categories
+let categories = [];
 let socket = null;
 let currentEditing = null;
 let editingPointOriginal = null; // store original coords when editing
@@ -59,8 +61,14 @@ async function loadTrips() {
         const list = await res.json();
         projects = Array.isArray(list) ? list : [];
         const stored = localStorage.getItem('currentTrip');
-        if (stored && projects.some(t => t.name === stored)) {
-            currentTrip = stored;
+        if (stored) {
+            const normalizedStored = sanitizeProjectName(stored);
+            const matched = projects.find(t => sanitizeProjectName(t.name) === normalizedStored);
+            if (matched) {
+                currentTrip = matched.name;
+            } else {
+                currentTrip = null;
+            }
         } else {
             currentTrip = null;
         }
@@ -116,6 +124,10 @@ function refreshProjectMenu(list) {
     }
 }
 
+function sanitizeProjectName(name) {
+    return String(name || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
 function validateProjectName(name) {
     return typeof name === 'string' && /^[a-zA-Z0-9_-]+$/.test(name);
 }
@@ -166,7 +178,8 @@ async function createProject() {
         if (!res.ok) {
             throw new Error('create failed');
         }
-        currentTrip = name;
+        const result = await res.json();
+        currentTrip = result.name || sanitizeProjectName(name);
         localStorage.setItem('currentTrip', currentTrip);
         await loadTrips();
         await reloadData();
@@ -206,14 +219,7 @@ async function deleteCurrentProject() {
 
 async function reloadData() {
     try {
-        // points
-        const ptsRes = await fetch(buildUrl('/api/points'));
-        const pts = await ptsRes.json();
-        points = (pts || []).map(convertPoint);
-        applyFilter();
-        fitMapToBounds();
-
-        // settings
+        // settings first so categories exist before initial point render
         const sres = await fetch(buildUrl('/api/settings'));
         const s = await sres.json();
         if (s) {
@@ -227,7 +233,21 @@ async function reloadData() {
                 const cb = document.getElementById('settingsAutoFetch');
                 if (cb) cb.checked = autoFetchImage;
             }
+            if (Array.isArray(s.categories)) {
+                categories = s.categories;
+            }
+            renderCategoryFilters();
+            populateCategorySelects();
         }
+
+        // points
+        const ptsRes = await fetch(buildUrl('/api/points'));
+        const pts = await ptsRes.json();
+        points = (pts || []).map(convertPoint);
+        renderCategoryFilters();
+        populateCategorySelects();
+        applyFilter();
+        fitMapToBounds();
 
         // tasks
         const tres = await fetch(buildUrl('/api/tasks'));
@@ -358,6 +378,12 @@ async function initMap() {
                 const cb = document.getElementById('settingsAutoFetch');
                 if (cb) cb.checked = autoFetchImage;
             }
+            if (payload && Array.isArray(payload.categories)) {
+                categories = payload.categories;
+                renderCategoryFilters();
+                populateCategorySelects();
+                renderCategorySettings();
+            }
         });
     }
     // load available trips and then load data for the selected trip
@@ -377,10 +403,26 @@ function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function getCategoryById(id) {
+    const normalizedId = normalizeCategoryId(id);
+    return categories.find(c => normalizeCategoryId(c.id) === normalizedId) || categories.find(c => normalizeCategoryId(c.id) === 'point') || { id: 'point', name: 'Point', color: '#1788f7' };
+}
+
+function resolveCategoryColor(id) {
+    return getCategoryById(id).color || '#1788f7';
+}
+
+function normalizeCategoryId(value) {
+    if (!value) return 'point';
+    const normalized = String(value).trim().toLowerCase();
+    return normalized || 'point';
+}
+
 function convertPoint(p) {
     const newp = Object.assign({}, p);
     if (newp.created) newp.createdMs = newp.created * 1000;
     else newp.createdMs = Date.now();
+    newp.categoryId = normalizeCategoryId(newp.categoryId || 'point');
     return newp;
 }
 
@@ -420,9 +462,10 @@ async function reverseGeocode(lat, lng) {
 }
 
 // ============ RENDERING ============
-function createCustomMarker() {
+function createCustomMarker(categoryId) {
     const markerDiv = document.createElement('div');
     markerDiv.className = 'map-marker';
+    markerDiv.style.background = resolveCategoryColor(categoryId);
     return L.divIcon({
         html: markerDiv.outerHTML,
         className: '',
@@ -443,8 +486,10 @@ function renderPoints(list) {
         const photoHtml = point.photo ? `<div style="margin-top:8px;"><img src="${point.photo}" alt="photo" style="max-width:180px;max-height:120px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'"></div>` : '';
         const descHtml = point.description ? `<div style="margin-top:8px;font-size:0.9rem;color:var(--text-2);max-width:200px;line-height:1.4;">${escapeHtml(point.description)}</div>` : '';
         const dayHtml = (point.day === null || point.day === undefined) ? 'Unscheduled' : `Day ${point.day}`;
-        const popupHtml = `<div style="min-width:200px; word-wrap: break-word; white-space: pre-wrap;"><b style="font-size:1.1rem;">${escapeHtml(point.name)}</b><div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">${dayHtml}</div>${descHtml}${photoHtml}</div>`;
-        const marker = L.marker([point.lat, point.lng], { icon: createCustomMarker() })
+        const category = getCategoryById(point.categoryId);
+        const categoryHtml = `<div style="margin-top:6px;display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${category.color};display:inline-block;"></span><span style="font-size:0.85rem;color:var(--text-3);">${escapeHtml(category.name)}</span></div>`;
+        const popupHtml = `<div style="min-width:200px; word-wrap: break-word; white-space: pre-wrap;"><b style="font-size:1.1rem;">${escapeHtml(point.name)}</b><div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">${dayHtml}</div>${categoryHtml}${descHtml}${photoHtml}</div>`;
+        const marker = L.marker([point.lat, point.lng], { icon: createCustomMarker(point.categoryId) })
             .bindPopup(popupHtml)
             .addTo(map);
         marker.pointId = point.id;
@@ -460,12 +505,14 @@ function updatePointsList() {
     pointCount.textContent = filteredPoints.length;
     filteredPoints.forEach(point => {
         const li = document.createElement('li');
+        const category = getCategoryById(point.categoryId);
+        li.style.borderLeft = `4px solid ${category.color}`;
         const info = document.createElement('div');
         info.className = 'point-info';
         const dayText = (point.day === null || point.day === undefined) ? 'Unscheduled' : `Day ${point.day}`;
         const desc = point.description ? `<div class="point-desc" style="font-size:0.85rem;color:var(--text-2);margin-top:4px;">${escapeHtml(point.description.substring(0, 50))}</div>` : '';
         const thumb = point.photo ? `<img src="${point.photo}" alt="photo" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;" onerror="this.style.display='none'">` : '';
-        info.innerHTML = `<div style="display:flex;align-items:flex-start;gap:10px;flex:1"><div>${thumb}</div><div style="flex:1"><div class="point-name" style="font-weight:500;">${escapeHtml(point.name)}</div><div class="point-day" style="font-size:0.85rem;color:var(--text-3);">${dayText}</div>${desc}</div></div>`;
+        info.innerHTML = `<div style="display:flex;align-items:flex-start;gap:10px;flex:1"><div>${thumb}</div><div style="flex:1"><div class="point-name" style="font-weight:500;">${escapeHtml(point.name)}</div><div style="display:flex;align-items:center;gap:0.5rem;margin-top:4px;"><span class="point-day" style="font-size:0.85rem;color:var(--text-3);">${dayText}</span><span style="font-size:0.75rem;color:${category.color};font-weight:600;">${escapeHtml(category.name)}</span></div>${desc}</div></div>`;
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '×';
@@ -522,6 +569,9 @@ function renderCalendar() {
 
 function applyFilter() {
     let filtered = (selectedOffset === null || selectedOffset <= 0) ? points.slice() : points.filter(p => p.day === selectedOffset);
+    if (selectedCategoryFilter) {
+        filtered = filtered.filter(p => normalizeCategoryId(p.categoryId) === selectedCategoryFilter);
+    }
     
     // Apply search filter
     if (searchQuery.trim()) {
@@ -539,6 +589,133 @@ function applyFilter() {
     renderPoints(filteredPoints);
     updatePointsList();
     renderCalendar();
+}
+
+function renderCategoryFilters() {
+    const container = document.getElementById('categoryFilters');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!categories.length) {
+        categories = [
+            { id: 'point', name: 'Point', color: '#1788f7' },
+            { id: 'hotel', name: 'Hotel', color: '#ff6b6b' },
+            { id: 'food', name: 'Food', color: '#f1c40f' }
+        ];
+    }
+    if (selectedCategoryFilter && !categories.some(c => c.id === selectedCategoryFilter)) {
+        selectedCategoryFilter = null;
+    }
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.textContent = 'All';
+    allBtn.className = 'category-chip';
+    if (selectedCategoryFilter === null) {
+        allBtn.classList.add('selected');
+    }
+    allBtn.addEventListener('click', () => {
+        selectedCategoryFilter = null;
+        renderCategoryFilters();
+        applyFilter();
+    });
+    container.appendChild(allBtn);
+    categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = cat.name;
+        btn.className = 'category-chip';
+        btn.style.borderColor = cat.color;
+        btn.style.color = cat.color;
+        btn.style.background = selectedCategoryFilter === cat.id ? `${cat.color}22` : 'transparent';
+        if (selectedCategoryFilter === cat.id) {
+            btn.classList.add('selected');
+        }
+        btn.addEventListener('click', () => {
+            selectedCategoryFilter = (selectedCategoryFilter === cat.id ? null : cat.id);
+            renderCategoryFilters();
+            applyFilter();
+        });
+        container.appendChild(btn);
+    });
+}
+
+function populateCategorySelects() {
+    const selects = [document.getElementById('pointCategory'), document.getElementById('modalCategory')].filter(Boolean);
+    if (!categories.length) {
+        categories = [
+            { id: 'point', name: 'Point', color: '#1788f7' },
+            { id: 'hotel', name: 'Hotel', color: '#ff6b6b' },
+            { id: 'food', name: 'Food', color: '#f1c40f' }
+        ];
+    }
+    selects.forEach(select => {
+        const current = normalizeCategoryId(select.value);
+        select.innerHTML = '';
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.id;
+            option.textContent = cat.name;
+            if (cat.id === current) option.selected = true;
+            select.appendChild(option);
+        });
+        if (!select.value) {
+            select.value = 'point';
+        }
+    });
+}
+
+function renderCategorySettings() {
+    const list = document.getElementById('categoryList');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!categories.length) {
+        categories = [
+            { id: 'point', name: 'Point', color: '#1788f7' },
+            { id: 'hotel', name: 'Hotel', color: '#ff6b6b' },
+            { id: 'food', name: 'Food', color: '#f1c40f' }
+        ];
+    }
+    categories.forEach(cat => addCategoryRow(cat));
+}
+
+function addCategoryRow(category) {
+    const list = document.getElementById('categoryList');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'category-row';
+    row.style.display = 'flex';
+    row.style.gap = '0.5rem';
+    row.style.alignItems = 'center';
+    row.style.marginBottom = '0.5rem';
+    row.style.flexWrap = 'wrap';
+    row.innerHTML = `
+        <input type="hidden" class="category-id" value="${escapeHtml(category.id)}">
+        <input type="text" class="input-field category-name" value="${escapeHtml(category.name)}" placeholder="Category name" style="flex:1; min-width:120px;">
+        <input type="color" class="category-color" value="${escapeHtml(category.color)}" title="Category color" style="width:56px; height:44px; border:none; padding:0; background:none; cursor:pointer;">
+        <button type="button" class="action-btn" style="flex:0 0 auto; width:auto; padding:0.65rem 0.9rem;">Remove</button>
+    `;
+    const removeBtn = row.querySelector('button');
+    removeBtn.addEventListener('click', () => {
+        if (list.children.length <= 1) {
+            showToast('At least one category is required', 'error');
+            return;
+        }
+        list.removeChild(row);
+    });
+    list.appendChild(row);
+}
+
+function syncCategoryDataFromSettings() {
+    const rows = Array.from(document.querySelectorAll('#categoryList .category-row'));
+    categories = rows.map(row => {
+        const idInput = row.querySelector('.category-id');
+        const nameInput = row.querySelector('.category-name');
+        const colorInput = row.querySelector('.category-color');
+        const name = nameInput ? nameInput.value.trim() : 'Point';
+        const color = colorInput ? colorInput.value.trim() : '#1788f7';
+        const rawId = idInput ? idInput.value.trim() : '';
+        const id = rawId || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '');
+        return { id: id || 'point', name: name || 'Point', color: color || '#1788f7' };
+    }).filter(c => c.id);
 }
 
 // ============ MODAL LOGIC ============
@@ -579,6 +756,7 @@ function showAddModal() {
     document.getElementById('modalName').value = '';
     document.getElementById('modalAddress').value = '';
     document.getElementById('modalDay').value = '';
+    document.getElementById('modalCategory').value = 'point';
     document.getElementById('modalDescription').value = '';
     document.getElementById('modalPhoto').value = '';
     document.getElementById('modalDelete').style.display = 'none';
@@ -592,6 +770,7 @@ function showEditModal(point) {
     document.getElementById('modalName').value = point.name || '';
     document.getElementById('modalAddress').value = '';
     document.getElementById('modalDay').value = point.day || '';
+    document.getElementById('modalCategory').value = normalizeCategoryId(point.categoryId);
     document.getElementById('modalDescription').value = point.description || '';
     document.getElementById('modalPhoto').value = point.photo || '';
     document.getElementById('modalDelete').style.display = 'inline-block';
@@ -636,7 +815,8 @@ async function addPointFromForm() {
             lng: geocoded.lng,
             day,
             description,
-            photo
+            photo,
+            categoryId: normalizeCategoryId(document.getElementById('pointCategory')?.value)
         };
 
         const res = await fetch(buildUrl('/api/points'), {
@@ -725,7 +905,15 @@ async function saveModalPoint() {
         }
 
         const day = dayVal ? parseInt(dayVal, 10) : null;
-        const payload = { name, lat, lng, day, description, photo };
+        const payload = {
+            name,
+            lat,
+            lng,
+            day,
+            description,
+            photo,
+            categoryId: normalizeCategoryId(document.getElementById('modalCategory')?.value)
+        };
 
         const method = currentEditing ? 'PUT' : 'POST';
         const url = currentEditing ? buildUrl(`/api/points/${currentEditing}`) : buildUrl('/api/points');
@@ -898,6 +1086,7 @@ function openModalSettings() {
     document.getElementById('settingsMaxDays').value = maxDays;
     const cb = document.getElementById('settingsAutoFetch');
     if (cb) cb.checked = !!autoFetchImage;
+    renderCategorySettings();
     closeAllMenus();
 
     const handleKeydown = (e) => {
@@ -926,11 +1115,33 @@ function closeModalSettings() {
 function saveSettings() {
     const v = parseInt(document.getElementById('settingsMaxDays').value, 10) || 7;
     const auto = !!(document.getElementById('settingsAutoFetch') && document.getElementById('settingsAutoFetch').checked);
+    const categoriesFromUI = Array.from(document.querySelectorAll('#categoryList .category-row')).map(row => {
+        const nameInput = row.querySelector('.category-name');
+        const colorInput = row.querySelector('.category-color');
+        const idInput = row.querySelector('.category-id');
+        const name = nameInput ? nameInput.value.trim() : '';
+        const color = colorInput ? colorInput.value.trim() : '#1788f7';
+        let id = idInput ? idInput.value.trim() : '';
+        if (!id && name) {
+            id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '');
+        }
+        return {
+            id: id || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, ''),
+            name: name || 'Point',
+            color: color || '#1788f7'
+        };
+    }).filter(c => c.id);
+    syncCategoryDataFromSettings();
+    if (!categories.length) {
+        categories = [{ id: 'point', name: 'Point', color: '#1788f7' }];
+    }
+    renderCategoryFilters();
+    populateCategorySelects();
     // send updated setting to server, which will broadcast to other clients
     fetch(buildUrl('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxDays: v, autoFetchImage: auto })
+        body: JSON.stringify({ maxDays: v, autoFetchImage: auto, categories: categoriesFromUI })
     }).then(r => r.json()).then(data => {
         if (data.settings) {
             if (typeof data.settings.maxDays === 'number') {
@@ -941,6 +1152,12 @@ function saveSettings() {
             }
             if (typeof data.settings.autoFetchImage !== 'undefined') {
                 autoFetchImage = !!data.settings.autoFetchImage;
+            }
+            if (Array.isArray(data.settings.categories)) {
+                categories = data.settings.categories;
+                renderCategoryFilters();
+                populateCategorySelects();
+                renderCategorySettings();
             }
         }
     }).catch(err => console.error('saveSettings error', err));
@@ -1392,6 +1609,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const settingsCancel = document.getElementById('settingsCancel');
     if (settingsSave) settingsSave.addEventListener('click', saveSettings);
     if (settingsCancel) settingsCancel.addEventListener('click', closeModalSettings);
+    const addCategoryBtn = document.getElementById('addCategoryBtn');
+    if (addCategoryBtn) addCategoryBtn.addEventListener('click', () => addCategoryRow({ id: '', name: 'New Category', color: '#9b59b6' }));
 
     // Import modal
     const importSave = document.getElementById('importSave');
