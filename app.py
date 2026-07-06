@@ -45,9 +45,10 @@ def resolve_tasks_file(trip: str | None):
 
 def default_categories():
     return [
-        {'id': 'point', 'name': 'Point', 'color': '#1788f7'},
+        {'id': 'sightseeing ', 'name': 'Sightseeing ', 'color': '#1788f7'},
         {'id': 'hotel', 'name': 'Hotel', 'color': '#ff6b6b'},
         {'id': 'food', 'name': 'Food', 'color': '#f1c40f'},
+        {'id': 'transit ', 'name': 'Transit ', 'color': '#8e44ad'},
     ]
 
 
@@ -708,4 +709,4 @@ if __name__ == '__main__':
     # Use socketio.run for real-time support
     # For production: debug=False, allow_unsafe_werkzeug=True for compatibility
     debug_mode = os.environ.get('FLASK_ENV', 'production') == 'development'
-    socketio.run(app, debug=debug_mode, host='0.0.0.0', port=5030, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, host='0.0.0.0', port=5030, allow_unsafe_werkzeug=True)
