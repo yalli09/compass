@@ -45,10 +45,11 @@ def resolve_tasks_file(trip: str | None):
 
 def default_categories():
     return [
-        {'id': 'sightseeing ', 'name': 'Sightseeing ', 'color': '#1788f7'},
+        {'id': 'point', 'name': 'Point', 'color': '#1788f7'},
+        {'id': 'sightseeing', 'name': 'Sightseeing', 'color': "#1ABC9C"},
         {'id': 'hotel', 'name': 'Hotel', 'color': '#ff6b6b'},
         {'id': 'food', 'name': 'Food', 'color': '#f1c40f'},
-        {'id': 'transit ', 'name': 'Transit ', 'color': '#8e44ad'},
+        {'id': 'transit', 'name': 'Transit', 'color': '#8e44ad'},
     ]
 
 
