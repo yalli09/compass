@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file
 from flask_socketio import SocketIO  # type: ignore
 import threading
 import time
@@ -348,6 +348,23 @@ def api_get_points():
     points = load_points(trip)
     return jsonify(points)
 
+
+@app.route('/api/download/points', methods=['GET'])
+def api_download_points():
+    """Download the project's points file exactly as it is stored on disk."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    points_path = resolve_points_file(trip)
+    if not os.path.exists(points_path):
+        return jsonify({'error': 'points file not found'}), 404
+    return send_file(
+        points_path,
+        as_attachment=True,
+        download_name=f'{trip}-points.json',
+        mimetype='application/json'
+    )
+
 @app.route('/api/points', methods=['POST'])
 def api_add_point():
     data = request.get_json() or {}
@@ -524,6 +541,23 @@ def api_get_tasks():
         return error_resp, status
     tasks = load_tasks(trip)
     return jsonify(tasks)
+
+
+@app.route('/api/download/tasks', methods=['GET'])
+def api_download_tasks():
+    """Download the project's tasks file exactly as it is stored on disk."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    tasks_path = resolve_tasks_file(trip)
+    if not os.path.exists(tasks_path):
+        return jsonify({'error': 'tasks file not found'}), 404
+    return send_file(
+        tasks_path,
+        as_attachment=True,
+        download_name=f'{trip}-tasks.json',
+        mimetype='application/json'
+    )
 
 @app.route('/api/tasks', methods=['POST'])
 def api_add_task():

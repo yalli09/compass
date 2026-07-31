@@ -977,14 +977,8 @@ function onMapContextMenu(e) {
 // ============ FILE OPERATIONS ============
 function downloadJSON() {
     if (!ensureProjectSelected()) return;
-    const data = JSON.stringify(points, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'compass-points.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    // Let the server return the actual stored file, including settings.
+    window.location.href = buildUrl('/api/download/points');
     closeAllMenus();
 }
 
@@ -1483,14 +1477,9 @@ function handleJsonImport(content) {
 
 function exportTasks() {
     if (!ensureProjectSelected()) return;
-    const data = JSON.stringify(tasks, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'tasks.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    // Let the server return the actual stored tasks file.
+    window.location.href = buildUrl('/api/download/tasks');
+    closeAllMenus();
     showToast('Tasks exported!', 'success');
 }
 
