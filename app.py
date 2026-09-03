@@ -336,7 +336,6 @@ def api_update_settings():
     if 'categories' in data and isinstance(data['categories'], list):
         settings['categories'] = normalize_categories(data['categories'])
     save_settings(settings, trip)
-    # broadcast to all clients so their calendars update
     socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
     return jsonify({'status': 'updated', 'settings': settings})
 
@@ -502,6 +501,7 @@ def api_update_point(pid):
 
     socketio.emit('points_updated', {'trip': trip, 'points': points})
     return jsonify({'status': 'updated'})
+
 
 @app.route('/api/organize-days', methods=['POST'])
 def api_organize_days():

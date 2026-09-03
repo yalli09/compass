@@ -226,7 +226,6 @@ async function reloadData() {
             if (typeof s.maxDays === 'number') {
                 maxDays = s.maxDays;
                 localStorage.setItem('maxDays', maxDays);
-                renderCalendar();
             }
             if (typeof s.autoFetchImage !== 'undefined') {
                 autoFetchImage = !!s.autoFetchImage;
@@ -248,6 +247,8 @@ async function reloadData() {
         populateCategorySelects();
         applyFilter();
         fitMapToBounds();
+
+        renderCalendar();
 
         // tasks
         const tres = await fetch(buildUrl('/api/tasks'));
@@ -309,6 +310,52 @@ function hideConfirmation() {
 }
 
 // ============ MAP INIT ============
+async function getEnglishMapStyle() {
+    const response = await fetch('https://tiles.openfreemap.org/styles/positron');
+    if (!response.ok) throw new Error('OpenFreeMap style failed to load');
+    const style = await response.json();
+    style.layers = (style.layers || []).map(layer => {
+        if (layer.type !== 'symbol' || !layer.layout) return layer;
+        const minZoomByLayer = {
+            'highway-name-path': 16,
+            'highway-name-minor': 15,
+            'waterway_line_label': 14,
+            'water_name_line_label': 13,
+            'label_other': 14,
+            'label_village': 12,
+            'label_town': 10
+        };
+        const minZoom = minZoomByLayer[layer.id];
+        const layout = { ...layer.layout };
+        delete layout['icon-image'];
+        if (minZoom !== undefined) layout.visibility = 'visible';
+        const paint = layer.paint ? { ...layer.paint } : undefined;
+        if (paint && layer.layout['text-field']) {
+            paint['text-halo-width'] = 1.5;
+            paint['text-halo-blur'] = 0.3;
+        }
+        if (!layer.layout['text-field']) return { ...layer, layout, ...(paint ? { paint } : {}) , ...(minZoom !== undefined ? { minzoom: minZoom } : {}) };
+        const originalFont = Array.isArray(layer.layout['text-font']) ? layer.layout['text-font'].join(' ') : '';
+        const fontName = originalFont.includes('Bold') ? 'Noto Sans Bold' : originalFont.includes('Italic') ? 'Noto Sans Italic' : 'Noto Sans Regular';
+        return {
+            ...layer,
+            minzoom: minZoom !== undefined ? minZoom : layer.minzoom,
+            layout: {
+                ...layout,
+                'text-font': [fontName],
+                'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name:latin'], ['get', 'name']],
+                'text-allow-overlap': false,
+                'icon-allow-overlap': false,
+                'text-padding': 3,
+                'text-letter-spacing': 0.01,
+                'text-max-angle': 30
+            },
+            ...(paint ? { paint } : {})
+        };
+    });
+    return style;
+}
+
 async function initMap() {
     map = L.map('map', { 
         zoomControl: false, 
@@ -316,18 +363,20 @@ async function initMap() {
         maxBoundsViscosity: 1.0
     }).setView([37.7749, -122.4194], 13);
           
-    // L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    //     attribution: '© OpenStreetMap contributors',
-    //     maxZoom: 19,
-    //     noWrap: true
-    // }).addTo(map);
-
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        maxZoom: 19,
-        noWrap: true 
-    }).addTo(map);
+    try {
+        const style = await getEnglishMapStyle();
+        L.maplibreGL({
+            style,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://openfreemap.org">OpenFreeMap</a>'
+        }).addTo(map);
+    } catch (error) {
+        console.error('OpenFreeMap unavailable, using OSM fallback', error);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+            noWrap: true
+        }).addTo(map);
+    }
 
     if (window.io) {
         socket = io();
@@ -370,7 +419,6 @@ async function initMap() {
             if (payload && typeof payload.maxDays === 'number') {
                 maxDays = payload.maxDays;
                 localStorage.setItem('maxDays', maxDays);
-                renderCalendar();
                 applyFilter();
             }
             if (payload && typeof payload.autoFetchImage !== 'undefined') {
