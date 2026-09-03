@@ -23,12 +23,39 @@ GOOD_PHOTO_SITES = [
     "500px.com",
 ]
 
+# Sites that are either watermarked, expire/require auth, or are
+# generally re-hosted low-quality copies -> never usable as "best image"
 BLOCKED_SITES = [
     "getyourguide.com",
     "expedia.com",
     "booking.com",
     "viator.com",
+    "pinterest.",          # re-hosted copies, links die often
+    "facebook.com",
+    "fbcdn.net",           # expiring/auth-walled CDN links
+    "instagram.com",
+    "shutterstock.com",    # watermarked previews
+    "istockphoto.com",
+    "gettyimages.com",
+    "alamy.com",
+    "dreamstime.com",
+    "depositphotos.com",
+    "123rf.com",
 ]
+
+# Title/URL keywords that reliably signal "not a real photo"
+BAD_KEYWORDS = [
+    "icon", "clipart", "clip-art", "vector", "logo", "sticker",
+    "cartoon", "coloring page", "coloring-page", "template",
+    "watermark", "diagram", "floor plan", "floor-plan", "screenshot",
+]
+
+TIER_SCORES = {"wiki": 4, "tripadvisor": 3, "photo": 2, "other": 1}
+
+MIN_WIDTH = 600
+MIN_HEIGHT = 400
+MAX_ASPECT_RATIO = 2.5  # reject banner/panorama-shaped images
+RESOLUTION_CAP = 4_000_000  # secondary tiebreaker, never lets size beat tier
 
 
 # =============================
@@ -46,47 +73,80 @@ def is_blocked(url: str) -> bool:
 
 def detect(url: str) -> str:
     url = url.lower()
-
     if any(x in url for x in WIKIMEDIA):
         return "wiki"
-
     if any(x in url for x in TRIPADVISOR_CDN):
         return "tripadvisor"
-
     if any(x in url for x in GOOD_PHOTO_SITES):
         return "photo"
-
     return "other"
+
+
+def safe_int(v) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def upgrade_wikimedia(url: str) -> str:
+    """Wikimedia search results are often small /thumb/ renders.
+    Strip the thumb path + size suffix to get the full-resolution original."""
+    if "/thumb/" not in url:
+        return url
+    try:
+        base, _, _ = url.rpartition("/")  # drop the trailing "220px-Example.jpg"
+        return base.replace("/thumb/", "/")
+    except Exception:
+        return url
+
+
+def has_bad_keywords(result: dict) -> bool:
+    text = f"{result.get('title', '')} {result.get('image', '')}".lower()
+    return any(k in text for k in BAD_KEYWORDS)
+
+
+def passes_quality(result: dict) -> bool:
+    """Strict pass: real-photo-shaped, decent resolution, no junk keywords."""
+    if has_bad_keywords(result):
+        return False
+    w, h = safe_int(result.get("width")), safe_int(result.get("height"))
+    if w and h:
+        if w < MIN_WIDTH or h < MIN_HEIGHT:
+            return False
+        if max(w, h) / max(min(w, h), 1) > MAX_ASPECT_RATIO:
+            return False
+    return True
 
 
 # =============================
 # SCORING ENGINE
 # =============================
 
-def score(result: dict) -> int:
+def score(result: dict) -> tuple:
+    """Tier always dominates; resolution only breaks ties within a tier."""
     url = (result.get("image") or "").lower()
+    tier_val = TIER_SCORES.get(detect(url), 1)
+    w, h = safe_int(result.get("width")), safe_int(result.get("height"))
+    area = min(w * h, RESOLUTION_CAP)
+    return (tier_val, area)
 
-    base = 0
-    kind = detect(url)
 
-    if kind == "wiki":
-        base += 50_000_000  # BEST
-    elif kind == "tripadvisor":
-        base += 35_000_000  # HIGH (real tourist photos)
-    elif kind == "photo":
-        base += 25_000_000  # good photography
-    else:
-        base += 1_000_000   # weak fallback
+# =============================
+# SEARCH (with retries, since ddgs can rate-limit / hiccup)
+# =============================
 
-    # small resolution boost (safe, capped)
-    try:
-        w = int(result.get("width") or 0)
-        h = int(result.get("height") or 0)
-        base += min(w * h, 5_000_000)
-    except:
-        pass
-
-    return base
+def _search(query: str, max_results: int = 60, retries: int = 2):
+    last_err = None
+    for _ in range(retries + 1):
+        try:
+            with DDGS() as ddgs:
+                return list(ddgs.images(query, max_results=max_results, safesearch="moderate"))
+        except Exception as e:
+            last_err = e
+            continue
+    print(f"[get_best_image] search failed for '{query}': {last_err}")
+    return []
 
 
 # =============================
@@ -94,22 +154,34 @@ def score(result: dict) -> int:
 # =============================
 
 def get_best_image(query: str):
-    with DDGS() as ddgs:
-        results = list(ddgs.images(query, max_results=60))
+    raw = _search(query)
 
-    # filter bad / blocked
-    results = [
-        r for r in results
-        if is_valid(r.get("image")) and not is_blocked(r.get("image"))
-    ]
+    # Fallback query for obscure/niche subjects that return nothing
+    if not raw:
+        raw = _search(f"{query} photo")
+        if not raw:
+            return None
 
-    if not results:
+    candidates = []
+    for r in raw:
+        url = r.get("image")
+        if not is_valid(url) or is_blocked(url):
+            continue
+        if detect(url) == "wiki":
+            r["image"] = upgrade_wikimedia(url)
+        candidates.append(r)
+
+    if not candidates:
         return None
 
-    # sort by score (BEST FIRST)
-    results.sort(key=score, reverse=True)
+    # Prefer results that pass strict quality checks; if that empties the
+    # pool (common for very niche subjects), fall back to the raw candidates
+    # rather than returning nothing.
+    strict = [r for r in candidates if passes_quality(r)]
+    pool = strict if strict else candidates
 
-    return results[0]["image"]
+    pool.sort(key=score, reverse=True)
+    return pool[0]["image"]
 
 
 # =============================
