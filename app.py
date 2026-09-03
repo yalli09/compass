@@ -692,6 +692,8 @@ def api_create_trip():
     name = data.get('name')
     if not name:
         return jsonify({'error': 'name required'}), 400
+    if not isinstance(name, str) or not name.strip() or not all(c.isalnum() or c in ('-', '_') for c in name):
+        return jsonify({'error': 'invalid name; use letters, numbers, hyphen, or underscore'}), 400
     clean = _sanitize_trip_name(name)
     if not clean:
         return jsonify({'error': 'invalid name'}), 400
