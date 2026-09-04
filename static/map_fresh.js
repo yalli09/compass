@@ -1271,7 +1271,7 @@ function importJSON() {
         Promise.all(arr.map(p => fetch(buildUrl('/api/points'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: p.name || 'Imported', lat: p.lat, lng: p.lng, day: p.day || null, description: p.description || '', photo: p.photo || '' })
+            body: JSON.stringify({ name: p.name || 'Imported', lat: p.lat, lng: p.lng, day: p.day || null, description: p.description || '', photo: p.photo || '', categoryId: p.categoryId || 'point' })
         })))
             .then(() => {
                 showToast('Import complete!', 'success');
