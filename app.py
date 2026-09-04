@@ -5,7 +5,11 @@ import time
 import json
 import os
 import math
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from clens import get_best_image
+from routing_service import RoutingError, calculate_route
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
@@ -302,6 +306,48 @@ def index():
 @app.route('/help')
 def help_page():
     return render_template('help.html')
+
+
+@app.route('/api/geocode', methods=['GET'])
+def api_geocode():
+    """Proxy Nominatim searches so the service receives a stable app identity."""
+    query = (request.args.get('q') or '').strip()
+    if len(query) < 2:
+        return jsonify([])
+    try:
+        limit = min(max(int(request.args.get('limit', 5)), 1), 10)
+    except (TypeError, ValueError):
+        limit = 5
+    params = urlencode({
+        'q': query,
+        'format': 'jsonv2',
+        'limit': limit,
+        'addressdetails': 1,
+        'dedupe': 1,
+        'accept-language': 'en'
+    })
+    try:
+        req = Request(
+            f'https://nominatim.openstreetmap.org/search?{params}',
+            headers={
+                'User-Agent': 'Compass/1.0 (personal trip planner)',
+                'Accept': 'application/json'
+            }
+        )
+        with urlopen(req, timeout=10) as response:
+            results = json.load(response)
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return jsonify({'error': 'Location search is temporarily unavailable'}), 502
+    return jsonify([
+        {
+            'lat': float(result['lat']),
+            'lng': float(result['lon']),
+            'address': result.get('display_name', query),
+            'type': result.get('type', '')
+        }
+        for result in results
+        if result.get('lat') is not None and result.get('lon') is not None
+    ])
     
 @app.route('/api/settings', methods=['GET'])
 def api_get_settings():
@@ -346,6 +392,17 @@ def api_get_points():
         return error_resp, status
     points = load_points(trip)
     return jsonify(points)
+
+
+@app.route('/api/routes', methods=['POST'])
+def api_calculate_route():
+    """Calculate a route without changing saved points or itinerary data."""
+    data = request.get_json() or {}
+    try:
+        route = calculate_route(data.get('start'), data.get('end'), data.get('mode', 'driving'))
+    except RoutingError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify(route)
 
 
 @app.route('/api/download/points', methods=['GET'])

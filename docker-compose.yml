@@ -4,10 +4,10 @@ services:
   compass:
     build: .
     container_name: compass-app
-    ports:
-      - "5030:5030"
+    network_mode: host
     volumes:
       - ./data:/app/data
     environment:
       - FLASK_ENV=production
+      - ROUTING_ENGINE_URL=https://router.project-osrm.org
     restart: unless-stopped

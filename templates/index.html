@@ -37,6 +37,7 @@
                 <li><a href="#" id="toolsMenu">Plan</a>
                     <div id="toolsMenuPopup" class="menu-popup hidden">
                         <div class="menu-item" id="mapPointsTab">Map Points</div>
+                        <div class="menu-item" id="routePlannerTab">Route Planner</div>
                         <div class="menu-item" id="taskListTab">Task List</div>
                         <div style="height:1px; background: #e0e0e0; margin: 0.2rem 0;"></div>
                         <div class="menu-item" id="organizeDaysItem">ATOSS</div>
@@ -56,6 +57,7 @@
                 <!-- Tab Navigation -->
                 <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
                     <button class="tab-btn active" data-tab="mapPoints" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-1); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Map Points</button>
+                    <button class="tab-btn" data-tab="routePlanner" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-2); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Route</button>
                     <button class="tab-btn" data-tab="taskList" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-2); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Task List</button>
                 </div>
 
@@ -92,6 +94,34 @@
                         <!-- to ugly
                         <button onclick="clearAllPoints()" class="action-btn">Clear All Points</button>
                         -->
+                    </div>
+                </div>
+
+                <!-- Route Planner Tab -->
+                <div id="routePlanner" class="tab-content hidden">
+                    <div>
+                        <h1>Route planner</h1>
+                        <p>Plan a road-aware drive between any two places.</p>
+                    </div>
+                    <div class="form-section route-panel">
+                        <label>Travel mode:<br>
+                            <select id="routeMode" class="input-field">
+                                <option value="driving">Driving</option>
+                                <option value="biking" disabled>Biking (coming next)</option>
+                                <option value="walking" disabled>Walking (coming next)</option>
+                                <option value="transit" disabled>Transit (GTFS setup required)</option>
+                            </select>
+                        </label>
+                        <label>Start:<br><select id="routeStartPoint" class="input-field"><option value="">Choose a saved point</option></select></label>
+                        <div class="route-search-wrap"><input id="routeStartSearch" class="input-field" placeholder="Or search a start address" autocomplete="off"><div id="routeStartResults" class="route-search-results hidden"></div></div>
+                        <button id="routeStartPin" type="button" class="action-btn">Pick start on map</button>
+                        <label>Destination:<br><select id="routeEndPoint" class="input-field"><option value="">Choose a saved point</option></select></label>
+                        <div class="route-search-wrap"><input id="routeEndSearch" class="input-field" placeholder="Or search a destination" autocomplete="off"><div id="routeEndResults" class="route-search-results hidden"></div></div>
+                        <button id="routeEndPin" type="button" class="action-btn">Pick destination on map</button>
+                        <button id="calculateRouteBtn" type="button" class="action-btn add-btn">Calculate route</button>
+                        <button id="clearRouteBtn" type="button" class="action-btn">Clear route</button>
+                        <div id="routeStatus" class="route-status" aria-live="polite">Choose two endpoints to begin.</div>
+                        <div id="routeResults" class="route-results hidden"></div>
                     </div>
                 </div>
 

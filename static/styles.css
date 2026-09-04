@@ -242,6 +242,92 @@ body.menu-open {
     background: hsl(210, 9%, 75%);
 }
 
+.route-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.route-search-wrap {
+    position: relative;
+}
+
+.route-search-results {
+    position: absolute;
+    z-index: 1020;
+    top: calc(100% - 0.45rem);
+    left: 0;
+    right: 0;
+    max-height: 210px;
+    overflow-y: auto;
+    background: var(--surface-1);
+    border: 1px solid var(--border-1);
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 5px 14px rgba(35, 48, 55, 0.16);
+}
+
+.route-search-results.hidden {
+    display: none;
+}
+
+.route-search-result {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid var(--border-2);
+    padding: 0.65rem 0.75rem;
+    background: transparent;
+    color: var(--text-1);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+
+.route-search-result:last-child {
+    border-bottom: 0;
+}
+
+.route-search-result:hover,
+.route-search-result:focus-visible {
+    background: var(--surface-2);
+    outline: none;
+}
+
+.route-search-result small {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.route-panel label {
+    color: var(--text-2);
+    font-size: 0.9rem;
+}
+
+.route-status {
+    color: var(--text-2);
+    font-size: 0.88rem;
+    min-height: 1.4rem;
+}
+
+.route-results {
+    border-top: 1px solid var(--border-2);
+    padding-top: 0.75rem;
+    color: var(--text-1);
+}
+
+.route-results strong {
+    display: block;
+    font-size: 1.05rem;
+}
+
+.route-results small {
+    color: var(--text-2);
+}
+
 .map-wrapper {
     flex: 1;
     position: relative;
@@ -850,6 +936,14 @@ h2 {
         grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
         gap: 0.5rem;
     }
+
+    .route-panel .action-btn {
+        min-height: 44px;
+    }
+
+    .route-search-results {
+        max-height: 180px;
+    }
 }
 
 @media (max-width: 480px) {
@@ -883,6 +977,10 @@ h2 {
     .action-btn {
         font-size: 0.85rem;
         padding: 0.5rem;
+    }
+
+    .route-panel .action-btn {
+        width: 100%;
     }
     
     .map-wrapper {

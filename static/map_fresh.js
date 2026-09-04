@@ -20,6 +20,11 @@ let currentTab = 'mapPoints'; // track current tab
 let autoFetchImage = false; // whether to auto-fetch image when none provided
 let currentTrip = null; // selected trip name, null = no project selected
 let projects = [];
+let routeStart = null;
+let routeEnd = null;
+let routePickTarget = null;
+let routeLayers = [];
+const routeSearchRequestIds = { start: 0, end: 0 };
 
 // ============ TOAST NOTIFICATIONS ============
 function showToast(message, type = 'info', duration = 1000) {
@@ -243,6 +248,7 @@ async function reloadData() {
         const ptsRes = await fetch(buildUrl('/api/points'));
         const pts = await ptsRes.json();
         points = (pts || []).map(convertPoint);
+        populateRoutePointSelects();
         renderCategoryFilters();
         populateCategorySelects();
         applyFilter();
@@ -443,6 +449,7 @@ async function initMap() {
     }
 
     map.on('contextmenu', onMapContextMenu);
+    map.on('click', onRouteMapClick);
 }
 
 // ============ HELPERS ============
@@ -476,21 +483,18 @@ function convertPoint(p) {
 
 // ============ GEOCODING ============
 async function geocodeAddress(query) {
-    if (!query.trim()) return null;
+    const results = await geocodeAddressResults(query, 1);
+    return results[0] || null;
+}
+
+async function geocodeAddressResults(query, limit = 5) {
+    if (!query.trim()) return [];
     try {
-        const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-            { headers: { 'User-Agent': 'Compass-App' } }
-        );
+        const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=${limit}`);
         if (!response.ok) throw new Error('Geocoding failed');
         const results = await response.json();
-        if (results.length === 0) return null;
-        const first = results[0];
-        return {
-            lat: parseFloat(first.lat),
-            lng: parseFloat(first.lon),
-            address: first.display_name
-        };
+        if (!Array.isArray(results)) return [];
+        return results;
     } catch (err) {
         console.error('Geocoding error:', err);
         return null;
@@ -507,6 +511,222 @@ async function reverseGeocode(lat, lng) {
         console.error('Reverse geocode error', err);
         return null;
     }
+}
+
+// ============ ROUTE PLANNER ============
+function populateRoutePointSelects() {
+    ['routeStartPoint', 'routeEndPoint'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const selected = select.value;
+        select.innerHTML = '<option value="">Choose a saved point</option>';
+        points.forEach(point => {
+            const option = document.createElement('option');
+            option.value = point.id;
+            option.textContent = point.name;
+            select.appendChild(option);
+        });
+        select.value = selected;
+    });
+}
+
+function setRouteEndpoint(target, location) {
+    routeSearchRequestIds[target] += 1;
+    const endpoint = { lat: Number(location.lat), lng: Number(location.lng), name: location.name || 'Map pin' };
+    if (target === 'start') routeStart = endpoint;
+    if (target === 'end') routeEnd = endpoint;
+    const search = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Search`);
+    if (search) search.value = endpoint.name;
+    const results = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Results`);
+    if (results) results.classList.add('hidden');
+    const select = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Point`);
+    if (select) select.value = '';
+    routePickTarget = null;
+    updateRouteStatus();
+}
+
+function selectSavedRoutePoint(target, value) {
+    const point = points.find(item => String(item.id) === String(value));
+    if (point) setRouteEndpoint(target, point);
+}
+
+function updateRouteStatus(message) {
+    const status = document.getElementById('routeStatus');
+    if (!status) return;
+    if (message) {
+        status.textContent = message;
+    } else if (routePickTarget) {
+        status.textContent = `Click the map to choose the ${routePickTarget}.`;
+    } else if (!routeStart || !routeEnd) {
+        status.textContent = 'Choose two endpoints to begin.';
+    } else {
+        status.textContent = 'Ready to calculate a driving route.';
+    }
+}
+
+function clearRouteLayers() {
+    routeLayers.forEach(layer => map.removeLayer(layer));
+    routeLayers = [];
+}
+
+function clearRoute() {
+    clearRouteLayers();
+    routeStart = null;
+    routeEnd = null;
+    routePickTarget = null;
+    ['routeStartSearch', 'routeEndSearch'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = '';
+    });
+    ['routeStartPoint', 'routeEndPoint'].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) select.value = '';
+    });
+    ['routeStartResults', 'routeEndResults'].forEach(id => {
+        document.getElementById(id)?.classList.add('hidden');
+    });
+    const results = document.getElementById('routeResults');
+    if (results) results.classList.add('hidden');
+    updateRouteStatus();
+}
+
+function formatRouteDistance(meters) {
+    return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+function formatRouteDuration(seconds) {
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
+}
+
+function drawRoute(route) {
+    clearRouteLayers();
+    route.routes.forEach((candidate, index) => {
+        const layer = L.polyline(candidate.path, {
+            color: index === 0 ? '#1769aa' : '#7b8794',
+            weight: index === 0 ? 6 : 4,
+            opacity: index === 0 ? 0.9 : 0.45,
+            dashArray: index === 0 ? null : '8 8'
+        }).addTo(map);
+        routeLayers.push(layer);
+    });
+    const primary = route.routes[0];
+    const results = document.getElementById('routeResults');
+    results.innerHTML = `<strong>${formatRouteDuration(primary.duration)} · ${formatRouteDistance(primary.distance)}</strong><small>Driving route from ${escapeHtml(routeStart.name)} to ${escapeHtml(routeEnd.name)}</small>`;
+    results.classList.remove('hidden');
+    map.fitBounds(routeLayers[0].getBounds(), { padding: [60, 60], maxZoom: 16 });
+    updateRouteStatus('Route calculated. The solid line is the recommended route.');
+}
+
+async function calculateRoute() {
+    const startSearch = document.getElementById('routeStartSearch');
+    const endSearch = document.getElementById('routeEndSearch');
+    if (!routeStart && startSearch?.value.trim()) await resolveRouteSearch('start');
+    if (!routeEnd && endSearch?.value.trim()) await resolveRouteSearch('end');
+    if (!routeStart || !routeEnd) {
+        updateRouteStatus('Choose both a start and a destination first.');
+        return;
+    }
+    const button = document.getElementById('calculateRouteBtn');
+    button.disabled = true;
+    updateRouteStatus('Calculating road route...');
+    try {
+        const response = await fetch('/api/routes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start: routeStart, end: routeEnd, mode: document.getElementById('routeMode').value })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Route calculation failed');
+        drawRoute(data);
+    } catch (error) {
+        console.error('calculateRoute error', error);
+        updateRouteStatus(error.message);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function onRouteMapClick(event) {
+    if (routePickTarget) {
+        const target = routePickTarget;
+        setRouteEndpoint(target, { lat: event.latlng.lat, lng: event.latlng.lng, name: 'Map pin' });
+        openMobileSidebar();
+        switchTab('routePlanner');
+    }
+}
+
+function closeMobileSidebar() {
+    if (window.innerWidth > 768) return;
+    const sidebar = document.querySelector('.sidebar');
+    const toggle = document.getElementById('sidebarToggle');
+    if (!sidebar) return;
+    sidebar.classList.add('hidden-mobile');
+    document.body.classList.remove('menu-open');
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.textContent = '☰';
+        toggle.classList.remove('open');
+    }
+    if (map) setTimeout(() => map.invalidateSize(true), 120);
+}
+
+function openMobileSidebar() {
+    if (window.innerWidth > 768) return;
+    const sidebar = document.querySelector('.sidebar');
+    const toggle = document.getElementById('sidebarToggle');
+    if (!sidebar) return;
+    sidebar.classList.remove('hidden-mobile');
+    document.body.classList.add('menu-open');
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.textContent = '×';
+        toggle.classList.add('open');
+    }
+    if (map) setTimeout(() => map.invalidateSize(true), 120);
+}
+
+async function searchRouteEndpoint(target) {
+    const input = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Search`);
+    if (!input || !input.value.trim()) return;
+    const requestId = ++routeSearchRequestIds[target];
+    updateRouteStatus('Searching for location...');
+    const locations = await geocodeAddressResults(input.value.trim(), 5);
+    if (requestId !== routeSearchRequestIds[target]) return;
+    if (!locations || !locations.length) {
+        updateRouteStatus('Location not found. Try a more specific address.');
+        return;
+    }
+    renderRouteSearchResults(target, locations);
+}
+
+function renderRouteSearchResults(target, locations) {
+    const container = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Results`);
+    if (!container) return;
+    container.innerHTML = '';
+    locations.forEach(location => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'route-search-result';
+        button.textContent = location.address;
+        const detail = document.createElement('small');
+        detail.textContent = location.type ? location.type.replace(/_/g, ' ') : 'OpenStreetMap result';
+        button.appendChild(detail);
+        button.addEventListener('click', () => setRouteEndpoint(target, { ...location, name: location.address }));
+        container.appendChild(button);
+    });
+    container.classList.toggle('hidden', locations.length === 0);
+}
+
+async function resolveRouteSearch(target) {
+    const input = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Search`);
+    if (!input || !input.value.trim()) return false;
+    updateRouteStatus('Finding location...');
+    const locations = await geocodeAddressResults(input.value.trim(), 5);
+    if (!locations || !locations.length) return false;
+    setRouteEndpoint(target, { ...locations[0], name: locations[0].address });
+    return true;
 }
 
 // ============ RENDERING ============
@@ -541,6 +761,14 @@ function renderPoints(list) {
             .bindPopup(popupHtml)
             .addTo(map);
         marker.pointId = point.id;
+        marker.on('click', (event) => {
+            if (!routePickTarget) return;
+            L.DomEvent.stopPropagation(event);
+            const target = routePickTarget;
+            setRouteEndpoint(target, point);
+            openMobileSidebar();
+            switchTab('routePlanner');
+        });
         marker.on('contextmenu', onMarkerContextMenu);
         markers.push(marker);
     });
@@ -1678,6 +1906,45 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    populateRoutePointSelects();
+    const routeStartSelect = document.getElementById('routeStartPoint');
+    const routeEndSelect = document.getElementById('routeEndPoint');
+    if (routeStartSelect) routeStartSelect.addEventListener('change', () => selectSavedRoutePoint('start', routeStartSelect.value));
+    if (routeEndSelect) routeEndSelect.addEventListener('change', () => selectSavedRoutePoint('end', routeEndSelect.value));
+    document.getElementById('routeStartPin')?.addEventListener('click', () => {
+        routePickTarget = 'start';
+        closeMobileSidebar();
+        updateRouteStatus();
+    });
+    document.getElementById('routeEndPin')?.addEventListener('click', () => {
+        routePickTarget = 'end';
+        closeMobileSidebar();
+        updateRouteStatus();
+    });
+    document.getElementById('calculateRouteBtn')?.addEventListener('click', calculateRoute);
+    document.getElementById('clearRouteBtn')?.addEventListener('click', clearRoute);
+    document.getElementById('routeStartSearch')?.addEventListener('keydown', event => {
+        if (event.key === 'Enter') searchRouteEndpoint('start');
+    });
+    document.getElementById('routeEndSearch')?.addEventListener('keydown', event => {
+        if (event.key === 'Enter') searchRouteEndpoint('end');
+    });
+    ['start', 'end'].forEach(target => {
+        const input = document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Search`);
+        let searchTimer;
+        input?.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            routeSearchRequestIds[target] += 1;
+            if (target === 'start') routeStart = null;
+            if (target === 'end') routeEnd = null;
+            if (input.value.trim().length < 3) {
+                document.getElementById(`route${target === 'start' ? 'Start' : 'End'}Results`)?.classList.add('hidden');
+                return;
+            }
+            searchTimer = setTimeout(() => searchRouteEndpoint(target), 500);
+        });
+    });
+
     // Sidebar add button
     const addBtn = document.getElementById('addPointBtn');
     if (addBtn) addBtn.addEventListener('click', addPointFromForm);
@@ -1811,6 +2078,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const clearAllItem = document.getElementById('clearAllItem');
     const clearAllTasksItem = document.getElementById('clearAllTasksItem');
     const mapPointsTab = document.getElementById('mapPointsTab');
+    const routePlannerTab = document.getElementById('routePlannerTab');
     const taskListTab = document.getElementById('taskListTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
     const settingsItem = document.getElementById('settingsItem');
@@ -1825,6 +2093,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (clearAllItem) clearAllItem.addEventListener('click', clearAllPoints);
     if (clearAllTasksItem) clearAllTasksItem.addEventListener('click', clearAllTasks);
     if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
+    if (routePlannerTab) routePlannerTab.addEventListener('click', () => { switchTab('routePlanner'); closeAllMenus(); });
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
     if (organizeDaysItem) organizeDaysItem.addEventListener('click', atoss);
     if (settingsItem) settingsItem.addEventListener('click', openModalSettings);
