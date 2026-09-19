@@ -5,6 +5,8 @@ import time
 import json
 import os
 import math
+import re
+from datetime import date as date_type, datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -27,6 +29,14 @@ if not os.path.exists(JSON_DIR):
 POINTS_FILE = os.path.join(os.path.dirname(__file__), 'points.json')
 TASKS_FILE = os.path.join(os.path.dirname(__file__), 'tasks.json')
 
+DEFAULT_PLANNER_SETTINGS = {
+    'planningMode': 'calendar',
+    'tripStartDate': None,
+    'dayStartTime': '08:00',
+    'dayEndTime': '22:00',
+    'defaultVisitMinutes': 60,
+}
+
 
 def _sanitize_trip_name(name: str) -> str:
     # allow letters, numbers, hyphen and underscore
@@ -45,6 +55,13 @@ def resolve_tasks_file(trip: str | None):
         return TASKS_FILE
     name = _sanitize_trip_name(trip)
     return os.path.join(JSON_DIR, f"{name}-tasks.json")
+
+
+def resolve_calendar_file(trip: str | None):
+    if not trip:
+        return os.path.join(os.path.dirname(__file__), 'calendar.json')
+    name = _sanitize_trip_name(trip)
+    return os.path.join(JSON_DIR, f"{name}-calendar.json")
 
 
 def default_categories():
@@ -81,6 +98,43 @@ def normalize_categories(categories):
         normalized.insert(0, default_categories()[0])
     return normalized
 
+
+def normalize_planner_settings(settings):
+    normalized = dict(DEFAULT_PLANNER_SETTINGS)
+    if not isinstance(settings, dict):
+        return normalized
+    if settings.get('planningMode') in ('legacy', 'calendar'):
+        normalized['planningMode'] = settings['planningMode']
+    trip_start = settings.get('tripStartDate')
+    if trip_start is None or trip_start == '':
+        normalized['tripStartDate'] = None
+    elif DATE_PATTERN.fullmatch(str(trip_start)):
+        try:
+            date_type.fromisoformat(str(trip_start))
+            normalized['tripStartDate'] = str(trip_start)
+        except ValueError:
+            pass
+    for field in ('dayStartTime', 'dayEndTime'):
+        value = str(settings.get(field, normalized[field]))
+        if TIME_PATTERN.fullmatch(value):
+            normalized[field] = value
+    try:
+        minutes = int(settings.get('defaultVisitMinutes', normalized['defaultVisitMinutes']))
+        if 15 <= minutes <= 480:
+            normalized['defaultVisitMinutes'] = minutes
+    except (TypeError, ValueError):
+        pass
+    return normalized
+
+
+def default_settings():
+    return {
+        'maxDays': 7,
+        'autoFetchImage': False,
+        'categories': default_categories(),
+        **DEFAULT_PLANNER_SETTINGS,
+    }
+
 lock = threading.Lock()
 
 def load_points(trip: str | None = None):
@@ -103,11 +157,7 @@ def load_storage(trip: str | None = None):
     if not os.path.exists(points_path):
         return {
             'points': [],
-            'settings': {
-                'maxDays': 7,
-                'autoFetchImage': False,
-                'categories': default_categories()
-            }
+            'settings': default_settings()
         }
     with open(points_path, 'r', encoding='utf-8') as f:
         try:
@@ -115,21 +165,13 @@ def load_storage(trip: str | None = None):
         except Exception:
             return {
                 'points': [],
-                'settings': {
-                    'maxDays': 7,
-                    'autoFetchImage': False,
-                    'categories': default_categories()
-                }
+                'settings': default_settings()
             }
     if isinstance(data, list):
         # legacy file containing just points
         return {
             'points': data,
-            'settings': {
-                'maxDays': 7,
-                'autoFetchImage': False,
-                'categories': default_categories()
-            }
+            'settings': default_settings()
         }
     elif isinstance(data, dict):
         pts = data.get('points', [])
@@ -141,15 +183,12 @@ def load_storage(trip: str | None = None):
         if 'autoFetchImage' not in settings:
             settings['autoFetchImage'] = False
         settings['categories'] = normalize_categories(settings.get('categories', default_categories()))
+        settings.update(normalize_planner_settings(settings))
         return {'points': pts, 'settings': settings}
     else:
         return {
             'points': [],
-            'settings': {
-                'maxDays': 7,
-                'autoFetchImage': False,
-                'categories': default_categories()
-            }
+            'settings': default_settings()
         }
 
 
@@ -217,6 +256,132 @@ def save_tasks(tasks, trip: str | None = None):
             pass
     with open(tasks_path, 'w', encoding='utf-8') as f:
         json.dump(tasks, f, indent=2)
+
+
+# ============ CALENDAR STORAGE ============
+DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+TIME_PATTERN = re.compile(r'^(?:[01]\d|2[0-3]):[0-5]\d$')
+CALENDAR_KINDS = {'visit', 'travel', 'task', 'break', 'custom'}
+
+
+def load_calendar(trip: str | None = None):
+    calendar_path = resolve_calendar_file(trip)
+    if not os.path.exists(calendar_path):
+        return []
+    try:
+        with open(calendar_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            data = data.get('events', [])
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def save_calendar(events, trip: str | None = None):
+    calendar_path = resolve_calendar_file(trip)
+    directory = os.path.dirname(calendar_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+    with open(calendar_path, 'w', encoding='utf-8') as f:
+        json.dump(events, f, indent=2)
+
+
+def _validate_calendar_fields(data, trip, existing=None, creating=False):
+    current = dict(existing or {})
+    if creating or 'title' in data:
+        title = str(data.get('title', '')).strip()
+        if not title:
+            return None, 'title is required'
+        if len(title) > 200:
+            return None, 'title must be 200 characters or fewer'
+        current['title'] = title
+
+    if creating or 'date' in data:
+        date_value = str(data.get('date', '')).strip()
+        if not DATE_PATTERN.fullmatch(date_value):
+            return None, 'date must use YYYY-MM-DD format'
+        try:
+            time.strptime(date_value, '%Y-%m-%d')
+        except ValueError:
+            return None, 'date is invalid'
+        current['date'] = date_value
+
+    if creating or 'allDay' in data or 'startTime' in data or 'endTime' in data:
+        raw_all_day = data.get('allDay', current.get('allDay', True))
+        if isinstance(raw_all_day, bool):
+            all_day = raw_all_day
+        elif isinstance(raw_all_day, str) and raw_all_day.lower() in ('true', '1', 'yes', 'on'):
+            all_day = True
+        elif isinstance(raw_all_day, str) and raw_all_day.lower() in ('false', '0', 'no', 'off'):
+            all_day = False
+        else:
+            return None, 'allDay must be a boolean'
+        start_time = data.get('startTime', current.get('startTime'))
+        end_time = data.get('endTime', current.get('endTime'))
+        if all_day:
+            start_time = None
+            end_time = None
+        else:
+            if not start_time:
+                return None, 'startTime is required for timed events'
+            if not TIME_PATTERN.fullmatch(str(start_time)):
+                return None, 'startTime must use HH:MM format'
+            if end_time is not None and end_time != '':
+                if not TIME_PATTERN.fullmatch(str(end_time)):
+                    return None, 'endTime must use HH:MM format'
+                if str(end_time) <= str(start_time):
+                    return None, 'endTime must be after startTime'
+            else:
+                end_time = None
+        current['allDay'] = all_day
+        current['startTime'] = start_time
+        current['endTime'] = end_time
+
+    if creating or 'kind' in data:
+        kind = str(data.get('kind', current.get('kind', 'custom'))).strip().lower()
+        if kind not in CALENDAR_KINDS:
+            return None, 'kind must be visit, travel, task, break, or custom'
+        current['kind'] = kind
+
+    for field in ('durationMinutes', 'sequence', 'travelMinutes'):
+        if field not in data:
+            continue
+        value = data[field]
+        if value in (None, ''):
+            current[field] = None
+            continue
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return None, f'{field} must be an integer'
+        if value < 0 or (field == 'durationMinutes' and value == 0):
+            return None, f'{field} must be positive'
+        current[field] = value
+
+    for field in ('description', 'color'):
+        if field in data:
+            value = data[field]
+            if value is not None and not isinstance(value, str):
+                return None, f'{field} must be a string'
+            current[field] = (value or '').strip()
+
+    for field, loader in (('pointId', load_points), ('taskId', load_tasks)):
+        if field not in data:
+            continue
+        value = data[field]
+        if value in (None, ''):
+            current[field] = None
+            continue
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return None, f'{field} must be an integer'
+        if not any(item.get('id') == value for item in loader(trip)):
+            return None, f'{field} does not exist in this project'
+        current[field] = value
+
+    return current, None
 
 
 def cluster_points_by_distance(points, num_clusters):
@@ -351,7 +516,7 @@ def api_geocode():
     
 @app.route('/api/settings', methods=['GET'])
 def api_get_settings():
-    """Return the global settings (currently only maxDays)."""
+    """Return project settings, including the date-based planner defaults."""
     trip, error_resp, status = require_trip_param()
     if error_resp:
         return error_resp, status
@@ -365,6 +530,8 @@ def api_update_settings():
     if error_resp:
         return error_resp, status
     settings = load_settings(trip)
+    if 'planningMode' in data and data['planningMode'] != settings.get('planningMode', 'calendar'):
+        return jsonify({'error': 'Use /api/planning/switch to change planningMode safely'}), 409
     if 'maxDays' in data:
         try:
             settings['maxDays'] = int(data['maxDays'])
@@ -381,6 +548,25 @@ def api_update_settings():
                 settings['autoFetchImage'] = False
     if 'categories' in data and isinstance(data['categories'], list):
         settings['categories'] = normalize_categories(data['categories'])
+    planner_data = {field: data[field] for field in DEFAULT_PLANNER_SETTINGS if field in data}
+    if planner_data:
+        candidate = normalize_planner_settings({**settings, **planner_data})
+        if 'tripStartDate' in planner_data and planner_data['tripStartDate'] not in (None, '') and candidate['tripStartDate'] is None:
+            return jsonify({'error': 'tripStartDate must use YYYY-MM-DD format'}), 400
+        if 'dayStartTime' in planner_data and candidate['dayStartTime'] != str(planner_data['dayStartTime']):
+            return jsonify({'error': 'dayStartTime must use HH:MM format'}), 400
+        if 'dayEndTime' in planner_data and candidate['dayEndTime'] != str(planner_data['dayEndTime']):
+            return jsonify({'error': 'dayEndTime must use HH:MM format'}), 400
+        if candidate['dayStartTime'] >= candidate['dayEndTime']:
+            return jsonify({'error': 'dayEndTime must be after dayStartTime'}), 400
+        if 'defaultVisitMinutes' in planner_data:
+            try:
+                requested_minutes = int(planner_data['defaultVisitMinutes'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'defaultVisitMinutes must be an integer from 15 to 480'}), 400
+            if requested_minutes != candidate['defaultVisitMinutes']:
+                return jsonify({'error': 'defaultVisitMinutes must be an integer from 15 to 480'}), 400
+        settings.update(candidate)
     save_settings(settings, trip)
     socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
     return jsonify({'status': 'updated', 'settings': settings})
@@ -421,6 +607,100 @@ def api_download_points():
         mimetype='application/json'
     )
 
+
+@app.route('/api/import/points', methods=['POST'])
+def api_import_points():
+    """Import a point array or an exported points storage object atomically."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    payload = request.get_json(silent=True)
+    imported = payload.get('points') if isinstance(payload, dict) else payload
+    if not isinstance(imported, list):
+        return jsonify({'error': 'expected an array of points or an exported points object'}), 400
+
+    with lock:
+        planning_mode = load_settings(trip).get('planningMode', 'calendar')
+        points = load_points(trip)
+        existing_ids = {point.get('id') for point in points}
+        imported_points = []
+        errors = []
+        now = time.time()
+        for index, raw in enumerate(imported):
+            if not isinstance(raw, dict):
+                errors.append(f'point {index + 1} must be an object')
+                continue
+            name = str(raw.get('name') or 'Imported point').strip()
+            try:
+                lat = float(raw.get('lat'))
+                lng = float(raw.get('lng'))
+            except (TypeError, ValueError):
+                errors.append(f'point {index + 1} has invalid coordinates')
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                errors.append(f'point {index + 1} has invalid coordinates')
+                continue
+            try:
+                point_id = int(raw.get('id'))
+            except (TypeError, ValueError):
+                point_id = int(now * 1000) + len(imported_points)
+            while point_id in existing_ids:
+                point_id += 1
+            point = {
+                'id': point_id,
+                'name': name,
+                'lat': lat,
+                'lng': lng,
+                'day': raw.get('day') if raw.get('day') not in ('', None) else None,
+                'description': str(raw.get('description') or ''),
+                'photo': str(raw.get('photo') or ''),
+                'categoryId': str(raw.get('categoryId') or 'point'),
+                'created': raw.get('created', now),
+            }
+            existing_ids.add(point_id)
+            imported_points.append(point)
+        if errors:
+            return jsonify({'error': 'point import rejected', 'details': errors}), 400
+
+        # Synchronize calendar events for imported points if tripStartDate is present
+        settings = load_settings(trip)
+        start_date = _date_value(settings.get('tripStartDate'))
+        events = load_calendar(trip)
+        if start_date:
+            linked_point_ids = {e.get('pointId') for e in events if e.get('pointId') is not None and e.get('kind') == 'visit'}
+            for pt in imported_points:
+                day_val = pt.get('day')
+                if day_val not in (None, '') and pt.get('id') not in linked_point_ids:
+                    try:
+                        day_num = int(day_val)
+                        if day_num >= 1:
+                            ev_date = start_date + timedelta(days=day_num - 1)
+                            events.append({
+                                'id': int(now * 1000) + len(events),
+                                'title': pt.get('name') or 'Point visit',
+                                'date': ev_date.isoformat(),
+                                'allDay': True,
+                                'startTime': None,
+                                'endTime': None,
+                                'kind': 'visit',
+                                'pointId': pt.get('id'),
+                                'description': 'Imported point visit',
+                                'color': '#1788f7',
+                                'created': now,
+                                'updated': now,
+                            })
+                            linked_point_ids.add(pt.get('id'))
+                    except (TypeError, ValueError):
+                        pass
+            save_calendar(events, trip)
+            socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+
+        points.extend(imported_points)
+        save_points(points, trip)
+
+    socketio.emit('points_updated', {'trip': trip, 'points': points})
+    return jsonify({'status': 'imported', 'count': len(imported_points), 'points': imported_points}), 201
+
 @app.route('/api/points', methods=['POST'])
 def api_add_point():
     data = request.get_json() or {}
@@ -433,6 +713,7 @@ def api_add_point():
     trip, error_resp, status = require_trip_param()
     if error_resp:
         return error_resp, status
+    settings = load_settings(trip)
     with lock:
         points = load_points(trip)
         day = data.get('day')
@@ -475,9 +756,6 @@ def api_add_point():
             pass
 
         points.append(point)
-        # if the user specified a day explicitly, propagate to nearby
-        # unscheduled points so clusters form around manually scheduled
-        # locations rather than being left behind.
         if point['day'] is not None:
             propagate_day(point, point['day'], points)
         save_points(points, trip)
@@ -508,6 +786,7 @@ def api_update_point(pid):
     trip, error_resp, status = require_trip_param()
     if error_resp:
         return error_resp, status
+    settings = load_settings(trip)
     with lock:
         points = load_points(trip)
         updated = False
@@ -726,6 +1005,459 @@ def api_import_tasks():
     return jsonify({'status': 'imported', 'count': len(new_tasks)}), 201
 
 
+# ============ CALENDAR API ENDPOINTS ============
+@app.route('/api/calendar', methods=['GET'])
+def api_get_calendar():
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    return jsonify(load_calendar(trip))
+
+
+@app.route('/api/calendar', methods=['DELETE'])
+def api_clear_calendar():
+    """Delete every calendar event in the selected project atomically."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    with lock:
+        save_calendar([], trip)
+    socketio.emit('calendar_updated', {'trip': trip, 'events': []})
+    return jsonify({'status': 'cleared', 'count': 0})
+
+
+@app.route('/api/download/calendar', methods=['GET'])
+def api_download_calendar():
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    calendar_path = resolve_calendar_file(trip)
+    if not os.path.exists(calendar_path):
+        return jsonify({'error': 'calendar file not found'}), 404
+    return send_file(
+        calendar_path,
+        as_attachment=True,
+        download_name=f'{trip}-calendar.json',
+        mimetype='application/json'
+    )
+
+
+@app.route('/api/import/calendar', methods=['POST'])
+def api_import_calendar():
+    """Import calendar events atomically and validate point/task references."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    payload = request.get_json(silent=True)
+    imported = payload.get('events') if isinstance(payload, dict) else payload
+    if not isinstance(imported, list):
+        return jsonify({'error': 'expected an array of events or an exported calendar object'}), 400
+
+    with lock:
+        events = load_calendar(trip)
+        existing_ids = {event.get('id') for event in events}
+        prepared = []
+        errors = []
+        now = time.time()
+        for index, raw in enumerate(imported):
+            if not isinstance(raw, dict):
+                errors.append(f'event {index + 1} must be an object')
+                continue
+            normalized, error = _validate_calendar_fields(raw, trip, creating=True)
+            if error:
+                errors.append(f'event {index + 1}: {error}')
+                continue
+            try:
+                event_id = int(raw.get('id'))
+            except (TypeError, ValueError):
+                event_id = int(now * 1000) + len(prepared)
+            while event_id in existing_ids:
+                event_id += 1
+            normalized['id'] = event_id
+            normalized['created'] = raw.get('created', now)
+            normalized['updated'] = now
+            existing_ids.add(event_id)
+            prepared.append(normalized)
+        if errors:
+            return jsonify({'error': 'calendar import rejected', 'details': errors}), 400
+        events.extend(prepared)
+        save_calendar(events, trip)
+
+    socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+    return jsonify({'status': 'imported', 'count': len(prepared), 'events': prepared}), 201
+
+
+@app.route('/api/calendar', methods=['POST'])
+def api_add_calendar_event():
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'request body must be an object'}), 400
+
+    with lock:
+        event, error = _validate_calendar_fields(data, trip, creating=True)
+        if error:
+            return jsonify({'error': error}), 400
+        events = load_calendar(trip)
+        event['id'] = int(time.time() * 1000)
+        while any(item.get('id') == event['id'] for item in events):
+            event['id'] += 1
+        now = time.time()
+        event['created'] = now
+        event['updated'] = now
+        events.append(event)
+        save_calendar(events, trip)
+
+    socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+    return jsonify(event), 201
+
+
+@app.route('/api/calendar/<int:event_id>', methods=['PUT'])
+def api_update_calendar_event(event_id):
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'request body must be an object'}), 400
+
+    with lock:
+        events = load_calendar(trip)
+        event = next((item for item in events if item.get('id') == event_id), None)
+        if event is None:
+            return jsonify({'error': 'not found'}), 404
+        updated, error = _validate_calendar_fields(data, trip, existing=event)
+        if error:
+            return jsonify({'error': error}), 400
+        event.clear()
+        event.update(updated)
+        event['id'] = event_id
+        event['updated'] = time.time()
+        save_calendar(events, trip)
+
+    socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+    return jsonify(event)
+
+
+@app.route('/api/calendar/<int:event_id>', methods=['DELETE'])
+def api_delete_calendar_event(event_id):
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    with lock:
+        events = load_calendar(trip)
+        remaining = [event for event in events if event.get('id') != event_id]
+        if len(remaining) == len(events):
+            return jsonify({'error': 'not found'}), 404
+        save_calendar(remaining, trip)
+
+    socketio.emit('calendar_updated', {'trip': trip, 'events': remaining})
+    return jsonify({'status': 'deleted'})
+
+
+def _minutes_from_time(value):
+    hours, minutes = str(value).split(':')
+    return int(hours) * 60 + int(minutes)
+
+
+def _time_from_minutes(value):
+    return f'{value // 60:02d}:{value % 60:02d}'
+
+
+def _date_value(value):
+    try:
+        return date_type.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _distance_km(first, second):
+    lat_delta = math.radians(second['lat'] - first['lat'])
+    lng_delta = math.radians(second['lng'] - first['lng'])
+    first_lat = math.radians(first['lat'])
+    second_lat = math.radians(second['lat'])
+    haversine = (math.sin(lat_delta / 2) ** 2 +
+                 math.sin(lng_delta / 2) ** 2 * math.cos(first_lat) * math.cos(second_lat))
+    return 6371 * 2 * math.asin(min(1, math.sqrt(haversine)))
+
+
+def _build_itinerary_preview(trip, data):
+    settings = normalize_planner_settings(load_settings(trip))
+    start_date = data.get('date')
+    if not _date_value(start_date):
+        return None, ['date must use YYYY-MM-DD format']
+    start_time = str(data.get('startTime') or settings['dayStartTime'])
+    end_time = str(data.get('endTime') or settings['dayEndTime'])
+    visit_minutes = data.get('visitMinutes', settings['defaultVisitMinutes'])
+    travel_buffer = data.get('travelBufferMinutes', 15)
+    try:
+        visit_minutes = int(visit_minutes)
+        travel_buffer = int(travel_buffer)
+    except (TypeError, ValueError):
+        return None, ['visitMinutes and travelBufferMinutes must be integers']
+    if not TIME_PATTERN.fullmatch(start_time) or not TIME_PATTERN.fullmatch(end_time):
+        return None, ['startTime and endTime must use HH:MM format']
+    if _minutes_from_time(start_time) >= _minutes_from_time(end_time):
+        return None, ['endTime must be after startTime']
+    if visit_minutes <= 0 or travel_buffer < 0:
+        return None, ['visitMinutes must be positive and travelBufferMinutes cannot be negative']
+
+    raw_ids = data.get('pointIds')
+    if not isinstance(raw_ids, list):
+        return None, ['pointIds must be an ordered list']
+    points_by_id = {point.get('id'): point for point in load_points(trip)}
+    point_ids = []
+    conflicts = []
+    for raw_id in raw_ids:
+        try:
+            point_id = int(raw_id)
+        except (TypeError, ValueError):
+            conflicts.append(f'Invalid point id: {raw_id}')
+            continue
+        if point_id in point_ids:
+            conflicts.append(f'Point {point_id} appears more than once')
+        elif point_id not in points_by_id:
+            conflicts.append(f'Point {point_id} does not exist in this project')
+        else:
+            point_ids.append(point_id)
+
+    events = []
+    cursor = _minutes_from_time(start_time)
+    day_end = _minutes_from_time(end_time)
+    previous_point = None
+    for sequence, point_id in enumerate(point_ids):
+        point = points_by_id[point_id]
+        if previous_point is not None:
+            distance = _distance_km(previous_point, point)
+            travel_minutes = max(travel_buffer, int(round(distance * 4)))
+            travel_end = cursor + travel_minutes
+            if travel_end > day_end:
+                conflicts.append(f'Not enough time to reach {point.get("name", "the next point")}')
+                break
+            events.append({
+                'title': f'Travel to {point.get("name", "next point")}',
+                'date': start_date,
+                'startTime': _time_from_minutes(cursor),
+                'endTime': _time_from_minutes(travel_end),
+                'allDay': False,
+                'kind': 'travel',
+                'travelMinutes': travel_minutes,
+                'sequence': sequence,
+                'description': f'Estimated {distance:.1f} km drive',
+                'color': '#64748b'
+            })
+            cursor = travel_end
+        visit_end = cursor + visit_minutes
+        if visit_end > day_end:
+            conflicts.append(f'Not enough time for {point.get("name", "the next point")}')
+            break
+        events.append({
+            'title': point.get('name') or 'Point visit',
+            'date': start_date,
+            'startTime': _time_from_minutes(cursor),
+            'endTime': _time_from_minutes(visit_end),
+            'allDay': False,
+            'kind': 'visit',
+            'durationMinutes': visit_minutes,
+            'pointId': point_id,
+            'sequence': sequence,
+            'color': '#1788f7'
+        })
+        cursor = visit_end
+        previous_point = point
+
+    for event_index, event in enumerate(events, start=1):
+        event['sequence'] = event.get('sequence', event_index)
+        event['previewId'] = -event_index
+    return {
+        'date': start_date,
+        'startTime': start_time,
+        'endTime': end_time,
+        'events': events,
+        'conflicts': conflicts,
+        'scheduledPointIds': [event['pointId'] for event in events if event.get('kind') == 'visit'],
+        'unscheduledPointIds': [point_id for point_id in point_ids if point_id not in [event.get('pointId') for event in events]],
+    }, conflicts
+
+
+@app.route('/api/itinerary/plan', methods=['POST'])
+def api_plan_itinerary():
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    data = request.get_json(silent=True) or {}
+    preview, errors = _build_itinerary_preview(trip, data)
+    if preview is None:
+        return jsonify({'error': 'invalid itinerary request', 'conflicts': errors}), 400
+    if data.get('commit') is not True:
+        return jsonify({'status': 'preview', **preview})
+    if preview['conflicts']:
+        return jsonify({'error': 'resolve itinerary conflicts before committing', **preview}), 409
+
+    with lock:
+        events = load_calendar(trip)
+        created = []
+        now = time.time()
+        for candidate in preview['events']:
+            event = dict(candidate)
+            event.pop('previewId', None)
+            event['id'] = int(now * 1000) + len(created)
+            event['created'] = now
+            event['updated'] = now
+            events.append(event)
+            created.append(event)
+        save_calendar(events, trip)
+    socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+    return jsonify({'status': 'committed', 'events': created, 'calendar': events}), 201
+
+
+def _legacy_migration_preview(trip, start_date):
+    parsed_start = _date_value(start_date)
+    if not parsed_start:
+        return None, ['tripStartDate must use YYYY-MM-DD format']
+    points = load_points(trip)
+    events = []
+    unmigrated = []
+    for point in points:
+        day = point.get('day')
+        if day in (None, ''):
+            unmigrated.append(point.get('id'))
+            continue
+        try:
+            day_number = int(day)
+        except (TypeError, ValueError):
+            unmigrated.append(point.get('id'))
+            continue
+        if day_number < 1:
+            unmigrated.append(point.get('id'))
+            continue
+        event_date = parsed_start + timedelta(days=day_number - 1)
+        events.append({
+            'title': point.get('name') or 'Point visit',
+            'date': event_date.isoformat(),
+            'allDay': True,
+            'startTime': None,
+            'endTime': None,
+            'kind': 'visit',
+            'pointId': point.get('id'),
+            'description': 'Migrated from legacy day planning',
+            'color': '#1788f7'
+        })
+    return {'tripStartDate': parsed_start.isoformat(), 'events': events, 'unmigratedPointIds': unmigrated}, []
+
+
+@app.route('/api/itinerary/migrate-days', methods=['POST'])
+def api_migrate_legacy_days():
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    data = request.get_json(silent=True) or {}
+    preview, errors = _legacy_migration_preview(trip, data.get('tripStartDate'))
+    if preview is None:
+        return jsonify({'error': 'invalid migration request', 'conflicts': errors}), 400
+    if data.get('commit') is not True:
+        return jsonify({'status': 'preview', **preview})
+    with lock:
+        existing = load_calendar(trip)
+        existing_point_ids = {event.get('pointId') for event in existing if event.get('pointId') is not None}
+        conflicts = [event['pointId'] for event in preview['events'] if event['pointId'] in existing_point_ids]
+        if conflicts:
+            return jsonify({'error': 'migration would duplicate existing point events', 'pointIds': conflicts}), 409
+        now = time.time()
+        for event in preview['events']:
+            event['id'] = int(now * 1000) + len(existing)
+            event['created'] = now
+            event['updated'] = now
+            existing.append(event)
+        save_calendar(existing, trip)
+        settings = load_settings(trip)
+        settings['tripStartDate'] = preview['tripStartDate']
+        save_settings(settings, trip)
+    socketio.emit('calendar_updated', {'trip': trip, 'events': existing})
+    socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
+    return jsonify({'status': 'committed', 'events': preview['events'], 'calendar': existing}), 201
+
+
+@app.route('/api/planning/switch', methods=['POST'])
+def api_switch_planning_mode():
+    """Switch planning modes and translate linked point schedules atomically."""
+    trip, error_resp, status = require_trip_param()
+    if error_resp:
+        return error_resp, status
+    data = request.get_json(silent=True) or {}
+    target = data.get('planningMode')
+    if target not in ('legacy', 'calendar'):
+        return jsonify({'error': 'planningMode must be legacy or calendar'}), 400
+
+    with lock:
+        points = load_points(trip)
+        events = load_calendar(trip)
+        settings = load_settings(trip)
+        current = settings.get('planningMode', 'calendar')
+        start_date = _date_value(data.get('tripStartDate')) or _date_value(settings.get('tripStartDate'))
+        if data.get('tripStartDate') not in (None, '') and start_date is None:
+            return jsonify({'error': 'tripStartDate must use YYYY-MM-DD format'}), 400
+        if _date_value(data.get('tripStartDate')):
+            settings['tripStartDate'] = _date_value(data.get('tripStartDate')).isoformat()
+
+        if target == 'calendar' and current != 'calendar':
+            if start_date is None:
+                return jsonify({'error': 'Set a trip start date before switching to Calendar dates'}), 400
+            settings['tripStartDate'] = start_date.isoformat()
+            linked_point_ids = {event.get('pointId') for event in events if event.get('pointId') is not None}
+            now = time.time()
+            for point in points:
+                day = point.get('day')
+                if point.get('id') in linked_point_ids or day in (None, ''):
+                    continue
+                try:
+                    day_number = int(day)
+                except (TypeError, ValueError):
+                    continue
+                event_date = start_date + timedelta(days=day_number - 1)
+                events.append({
+                    'id': int(now * 1000) + len(events),
+                    'title': point.get('name') or 'Point visit',
+                    'date': event_date.isoformat(),
+                    'allDay': True,
+                    'startTime': None,
+                    'endTime': None,
+                    'kind': 'visit',
+                    'pointId': point.get('id'),
+                    'description': 'Converted from legacy day planning',
+                    'color': '#1788f7',
+                    'created': now,
+                    'updated': now,
+                })
+        elif target == 'legacy' and current != 'legacy':
+            dated_events = [event for event in events if event.get('pointId') is not None and _date_value(event.get('date'))]
+            if dated_events:
+                if start_date is None:
+                    return jsonify({'error': 'Set a trip start date before switching to Legacy days'}), 400
+                first_date = start_date
+                settings['tripStartDate'] = first_date.isoformat()
+                point_by_id = {point.get('id'): point for point in points}
+                for event in dated_events:
+                    point = point_by_id.get(event.get('pointId'))
+                    if point:
+                        day_number = (_date_value(event['date']) - first_date).days + 1
+                        if day_number < 1:
+                            return jsonify({'error': f'Calendar event "{event.get("title", "Untitled")}" is before the trip start date'}), 400
+                        point['day'] = day_number
+
+        settings['planningMode'] = target
+        save_points(points, trip)
+        save_calendar(events, trip)
+        save_settings(settings, trip)
+
+    socketio.emit('points_updated', {'trip': trip, 'points': points})
+    socketio.emit('calendar_updated', {'trip': trip, 'events': events})
+    socketio.emit('settings_updated', {'trip': trip, 'settings': settings})
+    return jsonify({'status': 'switched', 'planningMode': target, 'points': points, 'events': events, 'settings': settings})
+
+
 @app.route('/api/trips', methods=['GET'])
 def api_list_trips():
     """List available trips by scanning the `json/` folder for *-points.json files."""
@@ -756,13 +1488,17 @@ def api_create_trip():
         return jsonify({'error': 'invalid name'}), 400
     points_path = resolve_points_file(clean)
     tasks_path = resolve_tasks_file(clean)
+    calendar_path = resolve_calendar_file(clean)
     # create empty files if not exist
     try:
         if not os.path.exists(points_path):
             with open(points_path, 'w', encoding='utf-8') as f:
-                json.dump({'points': [], 'settings': {'maxDays': 7, 'autoFetchImage': False, 'categories': default_categories()}}, f, indent=2)
+                json.dump({'points': [], 'settings': default_settings()}, f, indent=2)
         if not os.path.exists(tasks_path):
             with open(tasks_path, 'w', encoding='utf-8') as f:
+                json.dump([], f, indent=2)
+        if not os.path.exists(calendar_path):
+            with open(calendar_path, 'w', encoding='utf-8') as f:
                 json.dump([], f, indent=2)
     except Exception as e:
         return jsonify({'error': 'could not create files', 'detail': str(e)}), 500
@@ -776,6 +1512,7 @@ def api_delete_trip(trip_name):
         return jsonify({'error': 'invalid name'}), 400
     points_path = resolve_points_file(clean)
     tasks_path = resolve_tasks_file(clean)
+    calendar_path = resolve_calendar_file(clean)
     errors = []
     try:
         if os.path.exists(points_path):
@@ -787,6 +1524,11 @@ def api_delete_trip(trip_name):
             os.remove(tasks_path)
     except Exception as e:
         errors.append(str(e))
+    try:
+        if os.path.exists(calendar_path):
+            os.remove(calendar_path)
+    except Exception as e:
+        errors.append(str(e))
     if errors:
         return jsonify({'error': 'failed', 'detail': errors}), 500
     return jsonify({'status': 'deleted', 'name': clean})
@@ -796,8 +1538,10 @@ def handle_connect():
     # send current points and tasks to newly connected client
     points = load_points()
     tasks = load_tasks()
+    events = load_calendar()
     socketio.emit('points_updated', {'trip': None, 'points': points})
     socketio.emit('tasks_updated', {'trip': None, 'tasks': tasks})
+    socketio.emit('calendar_updated', {'trip': None, 'events': events})
 
 if __name__ == '__main__':
     # Use socketio.run for real-time support

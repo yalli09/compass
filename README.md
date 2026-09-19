@@ -1,8 +1,55 @@
-# Compass
+<div align="center">
 
-Light glass themed map with real-time syncing and point management.
+# <img src="static/favicon.ico" width="36" height="36" alt="Compass Icon" style="vertical-align: -6px;" /> Compass
 
-## Features
+**A real-time, interactive trip planning platform featuring a light glassmorphism interface, smart algorithmic itinerary routing, and multi-device synchronization.**
+
+[![build](https://img.shields.io/badge/build-passing-brightgreen)](#)
+[![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/Docker-Supported-blue)](https://www.docker.com/)
+
+[Quick Start](#-quick-start-demonstrated-on-macos) • [Docker Setup](#-docker-installation-for-linux) • [Features](#-features) • [Screenshots](#-screenshots)
+
+</div>
+
+---
+
+## 📌 Executive Summary
+
+**Compass** is a high-performance web application designed for interactive visual map planning and real-time collaboration. Built with a modern glassmorphism interface and integrated with Leaflet maps, Compass allows users to manage multiple travel projects, organize custom point categories, and automate day-by-day itineraries using the **ATOSS Engine**. Powered by Socket.IO, updates sync seamlessly across all connected devices and browsers, making it an ideal choice for both personal trip planning and real-time multi-user collaboration.
+
+---
+
+## 📋 Table of Contents
+
+- [Screenshots](#-screenshots)
+- [Features](#-features)
+  - [🗺️ Map \& Visualization](#️-map--visualization)
+  - [📁 Multi-Project \& Workspace Management](#-multi-project--workspace-management)
+  - [📍 Point Management \& Editing](#-point-management--editing)
+  - [🤖 Smart Trip Organizer (ATOSS)(alpha version)](#-smart-trip-organizer-atossalpha-version)
+  - [📅 Trip Planning \& Itinerary](#-trip-planning--itinerary)
+  - [🔄 Sync, PWA, \& Data Portability](#-sync-pwa--data-portability)
+- [Quick Start](#-quick-start-demonstrated-on-macos)
+- [Docker Installation](#-docker-installation-for-linux)
+- [Debugging Docker](#-debugging-the-docker-app-if-needed)
+- [Delete the App](#-delete-the-app)
+
+---
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/26989c14-cd8c-4ffd-bdab-5553976bb0af" width="100%" alt="Compass Screenshot 1" />
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/adb081d0-e4b9-4e3e-940f-523e029ec644" width="100%" alt="Compass Screenshot 2" />
+</p>
+
+---
+
+## ✨ Features
 
 ### 🗺️ Map & Visualization
 - **Glassmorphism UI:** Clean, modern light glass-themed interface optimized for desktop and mobile.
@@ -17,7 +64,8 @@ Light glass themed map with real-time syncing and point management.
 - **Independent Contexts:** Each project maintains its own isolated set of points, custom categories, map layers and task lists.
 
 ### 📍 Point Management & Editing
-- **Right-Click / Long-Press Shortcuts:** - Right-click anywhere on the map to open a modal and quickly drop a new point.
+- **Right-Click / Long-Press Shortcuts:**
+  - Right-click anywhere on the map to open a modal and quickly drop a new point.
   - Right-click an existing marker to instantly rename, edit, or delete it.
 - **Left-Click View:** Left-click a marker to smoothly display its name, coordinates, attached media, and custom descriptions.
 - **Rich Point Details:** Attach full descriptions, external link addresses, linked names, and custom photos directly to your locations.
@@ -31,10 +79,20 @@ Light glass themed map with real-time syncing and point management.
 - **Automated Trip Optimization (ATOSS Engine):** Intelligent algorithmic routing and scheduling that automatically clusters locations by proximity, optimal travel times, and category priority.
 - **Smart Itinerary Drafting:** Generates an optimized day-by-day baseline schedule based on your pinned locations, opening hours, and preferred pace.
 - **Intelligent Gaps & Overlap Detection:** Automatically flags unrealistic travel times or overlapping schedules and suggests smart buffers or alternative time slots.
+
 ### 📅 Trip Planning & Itinerary
-- **Calendar Widget:** Filter points by specific days.
-- **Customizable Intervals:** Adjust how many days appear in your calendar via the settings menu.
+- **Planning System Choice:** Choose Calendar dates or Legacy trip days from Settings at any time. Switching only changes the active planning view; it does not rewrite or delete either data set.
+- **Calendar:** Plan all-day or timed events in a month view with a selected-day agenda.
+- **Linked Events:** Calendar events can reference an existing map point and/or task without duplicating either record.
+- **Date-Based Itinerary:** Calendar-linked visits, travel blocks, tasks, breaks, and custom activities are the source of truth for daily trip planning.
+- **Morning-to-Evening Planning:** Configure trip start date, day start/end, and default visit length. Preview a point order before committing it to the calendar.
+- **Reversible Mode Conversion:** Switching to Calendar uses the trip start date to convert Day 1/Day 2 assignments. Switching back finds the earliest calendar date as Day 1 and counts forward.
+- **Calendar Widget:** Filter map points by their real calendar date.
+- **Customizable Planning Settings:** Configure the daily time window and default visit duration from the settings menu.
 - **Built-in Task List:** Plan your trip items alongside your map data.
+
+> [!NOTE]
+> Calendar events are stored in `json/<trip>-calendar.json`. Dates and times are kept as explicit strings (`YYYY-MM-DD` and `HH:MM`) so date-only events do not shift with the browser timezone. Legacy numeric `day` values remain preserved for compatibility and are never converted without a user-provided trip start date. Recurrence, reminders, drag-and-drop scheduling, and external calendar synchronization are not included yet.
 
 ### 🔄 Sync, PWA, & Data Portability
 - **Real-Time Synchronization:** Powered by Socket.IO—watch your updates propagate instantly across all connected screens.
@@ -42,75 +100,94 @@ Light glass themed map with real-time syncing and point management.
 - **Persistent Local Storage:** All map items and tasks are backed up securely on the server via JSON.
 - **Import / Export Engine:** Seamlessly backup, share, or upload your data. Supports importing tasks and points via JSON file upload or direct copy-pasting.
 
-## screenshots
+---
 
-<img src="https://github.com/user-attachments/assets/26989c14-cd8c-4ffd-bdab-5553976bb0af"/>
-<img src="https://github.com/user-attachments/assets/adb081d0-e4b9-4e3e-940f-523e029ec644"/>
+## 🚀 Quick Start (demonstrated on macos)
 
-## quick start(demonstrated on macos)
-1. Create and activate a virtual environment (optional but recommended):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+1. **Create and activate a virtual environment (optional but recommended):**
+  ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
 ```
 
-2. Install dependencies:
-
+2. **Install dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
 
+3. **Run the app:**
 ```bash
 python app.py
 ```
 
-4. Open http://localhost:5030 on multiple devices on the same network (or use your machine's LAN IP) and watch changes propagate automatically.
 
-Notes:
-- This is a development server (Flask + eventlet). For production, use proper deployment and secure the socket endpoint.
-- To allow external devices on the same LAN, access the machine's local IP (e.g., `http://192.168.1.10:5030`).
+4. **Access the Application:**
+Open `http://localhost:5030` on multiple devices on the same network (or use your machine's LAN IP) and watch changes propagate automatically.
 
-## docker installation for linux
+> [!WARNING]
+> This is a development server (Flask + eventlet). For production, use proper deployment and secure the socket endpoint.
+> To allow external devices on the same LAN, access the machine's local IP (e.g., `http://192.168.1.10:5030`).
 
-1. open a folder and download compass
+---
+
+## 🐳 Docker Installation for Linux
+
+1. **Clone the repository:**
 ```bash
 git clone https://github.com/yalli09/compass.git
 cd compass
 ```
-2.build up the app
 
+
+2. **Build and start the application:**
 ```bash
 docker-compose up -d
 ```
-3.check if it running
+
+
+3. **Verify the container is running:**
 ```bash
 docker-compose ps
 ```
-## debuging the docker app (if needed)
-### view the logs if you have an error 
+
+
+
+---
+
+## 🔍 Debugging the Docker App (if needed)
+
+* **View real-time application logs:**
 ```bash
 docker-compose logs -f
 ```
-### Stop the app
+
+
+* **Stop the application:**
 ```bash
 docker-compose down
 ```
 
-### Rebuild if you make changes
+
+* **Rebuild containers after making changes:**
 ```bash
 docker-compose up -d --build
 ```
 
-## delete the app
-### remove the app
+
+
+---
+
+## 🗑️ Delete the App
+
+* **Stop and remove the container:**
 ```bash
 docker stop compass-app
 docker rm compass-app
 ```
-### delete the image
+
+
+* **Delete the Docker image:**
 ```bash
 docker rmi compass_compass
 ```

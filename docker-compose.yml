@@ -4,9 +4,12 @@ services:
   compass:
     build: .
     container_name: compass-app
-    network_mode: host
+    ports:
+      - "5030:5030"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/app/data
+      - ./json:/app/json
     environment:
       - FLASK_ENV=production
       - ROUTING_ENGINE_URL=https://router.project-osrm.org

@@ -6,6 +6,15 @@ let markers = [];
 let points = [];
 let filteredPoints = [];
 let tasks = [];
+let calendarEvents = [];
+let calendarCursor = new Date();
+let calendarSelectedDate = formatCalendarDate(new Date());
+let calendarAgendaAllDates = false;
+let editingCalendarEvent = null;
+let itineraryPreviewData = null;
+let selectedCalendarDateFilter = null;
+let planningMode = 'calendar';
+let tripStartDate = null;
 
 let maxDays = localStorage.getItem('maxDays') ? parseInt(localStorage.getItem('maxDays')) : 7;
 let selectedOffset = null; // null = show all
@@ -237,9 +246,17 @@ async function reloadData() {
                 const cb = document.getElementById('settingsAutoFetch');
                 if (cb) cb.checked = autoFetchImage;
             }
+            planningMode = s.planningMode === 'legacy' ? 'legacy' : 'calendar';
+            tripStartDate = s.tripStartDate || null;
+            setCalendarFocusDate(tripStartDate);
+            updatePlanningModeUI();
             if (Array.isArray(s.categories)) {
                 categories = s.categories;
             }
+            document.getElementById('settingsTripStartDate').value = s.tripStartDate || '';
+            document.getElementById('settingsDayStartTime').value = s.dayStartTime || '08:00';
+            document.getElementById('settingsDayEndTime').value = s.dayEndTime || '22:00';
+            document.getElementById('settingsVisitMinutes').value = s.defaultVisitMinutes || 60;
             renderCategoryFilters();
             populateCategorySelects();
         }
@@ -261,8 +278,38 @@ async function reloadData() {
         const ts = await tres.json();
         tasks = ts || [];
         updateTasksList();
+
+        const cres = await fetch(buildUrl('/api/calendar'));
+        const events = await cres.json();
+        calendarEvents = Array.isArray(events) ? events : [];
+        await syncMissingCalendarEventsForPoints();
+        renderCalendarMonth();
+        applyFilter();
     } catch (err) {
         console.error('reloadData error', err);
+    }
+}
+
+async function syncMissingCalendarEventsForPoints() {
+    if (!tripStartDate) return;
+    const existingVisitPointIds = new Set(
+        calendarEvents.filter(e => e && e.pointId !== null && e.pointId !== undefined && e.kind === 'visit').map(e => e.pointId)
+    );
+    for (const pt of points) {
+        if (pt && pt.day !== null && pt.day !== undefined && pt.day !== '' && !existingVisitPointIds.has(pt.id)) {
+            const dayNum = parseInt(pt.day, 10);
+            if (!isNaN(dayNum) && dayNum >= 1) {
+                const targetDate = calculateDateStringFromDay(dayNum);
+                if (targetDate) {
+                    try {
+                        await syncPointSchedule(pt, targetDate);
+                        existingVisitPointIds.add(pt.id);
+                    } catch (e) {
+                        console.error('Error auto-syncing point calendar event:', e);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -393,24 +440,42 @@ async function initMap() {
                 // legacy
                 points = (data || []).map(convertPoint);
                 applyFilter();
+                renderCalendarMonth();
                 return;
             }
             const trip = data.trip || null;
             if (trip !== currentTrip) return; // ignore updates for other trips
             points = (data.points || []).map(convertPoint);
             applyFilter();
+            renderCalendarMonth();
         });
         socket.on('tasks_updated', (data) => {
             if (!data) return;
             if (Array.isArray(data)) {
                 tasks = data || [];
                 updateTasksList();
+                renderCalendarMonth();
                 return;
             }
             const trip = data.trip || null;
             if (trip !== currentTrip) return;
             tasks = data.tasks || [];
             updateTasksList();
+            renderCalendarMonth();
+        });
+        socket.on('calendar_updated', (data) => {
+            if (!data) return;
+            if (Array.isArray(data)) {
+                calendarEvents = data;
+                renderCalendarMonth();
+                applyFilter();
+                return;
+            }
+            const trip = data.trip || null;
+            if (trip !== currentTrip) return;
+            calendarEvents = Array.isArray(data.events) ? data.events : [];
+            renderCalendarMonth();
+            applyFilter();
         });
         socket.on('settings_updated', (s) => {
             // payload may be {trip, settings} or legacy settings object
@@ -431,6 +496,19 @@ async function initMap() {
                 autoFetchImage = !!payload.autoFetchImage;
                 const cb = document.getElementById('settingsAutoFetch');
                 if (cb) cb.checked = autoFetchImage;
+            }
+            if (payload && (payload.planningMode === 'legacy' || payload.planningMode === 'calendar')) {
+                planningMode = payload.planningMode;
+                tripStartDate = payload.tripStartDate || tripStartDate;
+                updatePlanningModeUI();
+            }
+            if (payload && Object.prototype.hasOwnProperty.call(payload, 'tripStartDate')) {
+                tripStartDate = payload.tripStartDate || null;
+                setCalendarFocusDate(tripStartDate);
+                renderCalendar();
+                renderCalendarMonth();
+                renderPoints(filteredPoints);
+                updatePointsList();
             }
             if (payload && Array.isArray(payload.categories)) {
                 categories = payload.categories;
@@ -753,7 +831,7 @@ function renderPoints(list) {
     list.forEach(point => {
         const photoHtml = point.photo ? `<div style="margin-top:8px;"><img src="${point.photo}" alt="photo" style="max-width:180px;max-height:120px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'"></div>` : '';
         const descHtml = point.description ? `<div style="margin-top:8px;font-size:0.9rem;color:var(--text-2);max-width:200px;line-height:1.4;">${escapeHtml(point.description)}</div>` : '';
-        const dayHtml = (point.day === null || point.day === undefined) ? 'Unscheduled' : `Day ${point.day}`;
+        const dayHtml = pointScheduleLabel(point);
         const category = getCategoryById(point.categoryId);
         const categoryHtml = `<div style="margin-top:6px;display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${category.color};display:inline-block;"></span><span style="font-size:0.85rem;color:var(--text-3);">${escapeHtml(category.name)}</span></div>`;
         const popupHtml = `<div style="min-width:200px; word-wrap: break-word; white-space: pre-wrap;"><b style="font-size:1.1rem;">${escapeHtml(point.name)}</b><div style="font-size:0.85rem;color:var(--text-3);margin-top:4px;">${dayHtml}</div>${categoryHtml}${descHtml}${photoHtml}</div>`;
@@ -785,7 +863,7 @@ function updatePointsList() {
         li.style.borderLeft = `4px solid ${category.color}`;
         const info = document.createElement('div');
         info.className = 'point-info';
-        const dayText = (point.day === null || point.day === undefined) ? 'Unscheduled' : `Day ${point.day}`;
+        const dayText = pointScheduleLabel(point);
         const desc = point.description ? `<div class="point-desc" style="font-size:0.85rem;color:var(--text-2);margin-top:4px;">${escapeHtml(point.description.substring(0, 50))}</div>` : '';
         const thumb = point.photo ? `<img src="${point.photo}" alt="photo" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;" onerror="this.style.display='none'">` : '';
         info.innerHTML = `<div style="display:flex;align-items:flex-start;gap:10px;flex:1"><div>${thumb}</div><div style="flex:1"><div class="point-name" style="font-weight:500;">${escapeHtml(point.name)}</div><div style="display:flex;align-items:center;gap:0.5rem;margin-top:4px;"><span class="point-day" style="font-size:0.85rem;color:var(--text-3);">${dayText}</span><span style="font-size:0.75rem;color:${category.color};font-weight:600;">${escapeHtml(category.name)}</span></div>${desc}</div></div>`;
@@ -838,26 +916,624 @@ function updatePointsList() {
     });
 }
 
+function setCalendarFocusDate(dateString) {
+    if (dateString) {
+        calendarCursor = parseCalendarDate(dateString);
+        calendarSelectedDate = dateString;
+    } else {
+        calendarCursor = new Date();
+        calendarSelectedDate = formatCalendarDate(new Date());
+    }
+}
+
+function getTripStartDateObj() {
+    if (!tripStartDate) return null;
+    const parts = String(tripStartDate).split('-').map(Number);
+    if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function calculateDayFromDateString(dateStr) {
+    if (!dateStr || !tripStartDate) return null;
+    const tripStart = getTripStartDateObj();
+    if (!tripStart) return null;
+    const parts = String(dateStr).split('-').map(Number);
+    if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return null;
+
+    const startUtc = Date.UTC(tripStart.getFullYear(), tripStart.getMonth(), tripStart.getDate());
+    const dateUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+    const diffDays = Math.round((dateUtc - startUtc) / 86400000);
+    return diffDays + 1;
+}
+
+function calculateDateStringFromDay(dayNum) {
+    const day = parseInt(dayNum, 10);
+    if (isNaN(day) || day < 1 || !tripStartDate) return null;
+    const tripStart = getTripStartDateObj();
+    if (!tripStart) return null;
+
+    const targetDate = new Date(tripStart.getFullYear(), tripStart.getMonth(), tripStart.getDate() + (day - 1));
+    return formatCalendarDate(targetDate);
+}
+
+let isSyncingDateDay = false;
+
+function syncDateToDay(dateInput, dayInput) {
+    if (isSyncingDateDay || !dateInput || !dayInput) return;
+    isSyncingDateDay = true;
+    try {
+        const val = dateInput.value;
+        if (!val) {
+            dayInput.value = '';
+            return;
+        }
+        if (!tripStartDate) {
+            dayInput.value = '';
+            return;
+        }
+        const day = calculateDayFromDateString(val);
+        if (day === null) {
+            dayInput.value = '';
+            return;
+        }
+        if (day < 1) {
+            dayInput.value = '';
+            showToast(`Selected date is before the trip start date (${tripStartDate}).`, 'warning', 2500);
+            return;
+        }
+        dayInput.value = day;
+    } finally {
+        isSyncingDateDay = false;
+    }
+}
+
+function syncDayToDate(dayInput, dateInput) {
+    if (isSyncingDateDay || !dayInput || !dateInput) return;
+    isSyncingDateDay = true;
+    try {
+        const val = String(dayInput.value || '').trim();
+        if (!val) {
+            dateInput.value = '';
+            return;
+        }
+        if (!tripStartDate) {
+            dateInput.value = '';
+            showToast('No trip start date set. Set a start date in Settings to calculate calendar dates.', 'info', 3000);
+            return;
+        }
+        const dayNum = parseInt(val, 10);
+        if (isNaN(dayNum) || dayNum < 1) {
+            dateInput.value = '';
+            return;
+        }
+        const calculatedDate = calculateDateStringFromDay(dayNum);
+        if (calculatedDate) {
+            dateInput.value = calculatedDate;
+        }
+    } finally {
+        isSyncingDateDay = false;
+    }
+}
+
+function pointScheduleLabel(point) {
+    const scheduled = calendarEvents
+        .filter(event => event.pointId === point.id)
+        .sort((a, b) => `${a.date}${a.startTime || ''}`.localeCompare(`${b.date}${b.startTime || ''}`))[0];
+
+    if (planningMode === 'legacy') {
+        if (point.day !== null && point.day !== undefined && point.day !== '') {
+            const start = tripStartDate ? parseCalendarDate(tripStartDate) : null;
+            if (start && Number.isInteger(Number(point.day)) && Number(point.day) > 0) {
+                const scheduledDate = new Date(start.getFullYear(), start.getMonth(), start.getDate() + Number(point.day) - 1);
+                return `Day ${point.day} (${formatCalendarDate(scheduledDate)})`;
+            }
+            return `Day ${point.day}`;
+        }
+        if (scheduled) {
+            if (tripStartDate) {
+                const day = calculateDayFromDateString(scheduled.date);
+                if (day && day >= 1) return `Day ${day} (${scheduled.date})`;
+            }
+            return scheduled.date;
+        }
+        return 'Unscheduled';
+    }
+
+    if (scheduled) {
+        let label = `${scheduled.date}${scheduled.allDay ? '' : ` at ${scheduled.startTime}`}`;
+        if (tripStartDate) {
+            const day = calculateDayFromDateString(scheduled.date);
+            if (day && day >= 1) label += ` (Day ${day})`;
+        }
+        return label;
+    }
+    if (point.day !== null && point.day !== undefined && point.day !== '') {
+        if (tripStartDate) {
+            const calcDate = calculateDateStringFromDay(point.day);
+            if (calcDate) return `${calcDate} (Day ${point.day})`;
+        }
+        return `Day ${point.day}`;
+    }
+    return 'Unscheduled';
+}
+
 function renderCalendar() {
     const container = document.getElementById('calendarDays');
     if (!container) return;
     container.innerHTML = '';
-    for (let i = 1; i <= maxDays; i++) {
-        const dayDiv = document.createElement('div');
-        dayDiv.className = 'calendar-day';
-        dayDiv.textContent = i;
-        if (points.some(p => p.day === i)) dayDiv.classList.add('has-points');
-        if (i === selectedOffset) dayDiv.classList.add('selected');
-        dayDiv.addEventListener('click', () => {
-            selectedOffset = (selectedOffset === i ? null : i);
+    if (planningMode === 'legacy') {
+        for (let day = 1; day <= maxDays; day += 1) {
+            const dayButton = document.createElement('button');
+            dayButton.type = 'button';
+            dayButton.className = 'calendar-day';
+            const pointCount = points.filter(point => point.day === day).length;
+            dayButton.textContent = day;
+            if (pointCount) dayButton.classList.add('has-points');
+            if (day === selectedOffset) dayButton.classList.add('selected');
+            dayButton.addEventListener('click', () => {
+                selectedOffset = selectedOffset === day ? null : day;
+                syncPointEntryDefaults();
+                applyFilter();
+            });
+            container.appendChild(dayButton);
+        }
+        return;
+    }
+    const monthHeader = document.createElement('div');
+    monthHeader.className = 'calendar-filter-header';
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'calendar-filter-nav';
+    previous.textContent = '<';
+    previous.setAttribute('aria-label', 'Previous month');
+    previous.addEventListener('click', () => {
+        calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
+        renderCalendar();
+        renderCalendarMonth();
+    });
+    const monthLabel = document.createElement('strong');
+    monthLabel.textContent = calendarCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'calendar-filter-nav';
+    next.textContent = '>';
+    next.setAttribute('aria-label', 'Next month');
+    next.addEventListener('click', () => {
+        calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1);
+        renderCalendar();
+        renderCalendarMonth();
+    });
+    monthHeader.append(previous, monthLabel, next);
+    container.appendChild(monthHeader);
+    const firstDay = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth(), 1).getDay();
+    const daysInMonth = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 0).getDate();
+    for (let index = 0; index < firstDay; index += 1) {
+        const empty = document.createElement('span');
+        empty.className = 'calendar-filter-empty';
+        container.appendChild(empty);
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = formatCalendarDate(new Date(calendarCursor.getFullYear(), calendarCursor.getMonth(), day));
+        const dayButton = document.createElement('button');
+        dayButton.type = 'button';
+        dayButton.className = 'calendar-day';
+        const eventCount = calendarEvents.filter(event => event.date === date).length;
+        dayButton.textContent = day;
+        if (date === selectedCalendarDateFilter) dayButton.classList.add('selected');
+        if (eventCount) dayButton.classList.add('has-points');
+        dayButton.addEventListener('click', () => {
+            selectedCalendarDateFilter = selectedCalendarDateFilter === date ? null : date;
+            calendarSelectedDate = date;
+            syncPointEntryDefaults();
+            renderCalendar();
+            renderCalendarMonth();
             applyFilter();
         });
-        container.appendChild(dayDiv);
+        container.appendChild(dayButton);
+    }
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'calendar-clear-filter';
+    clear.textContent = selectedCalendarDateFilter ? 'Show all dates' : 'Showing all dates';
+    clear.disabled = !selectedCalendarDateFilter;
+    clear.addEventListener('click', () => {
+        selectedCalendarDateFilter = null;
+        renderCalendar();
+        applyFilter();
+    });
+    container.appendChild(clear);
+}
+
+function updatePlanningModeUI() {
+    const legacy = planningMode === 'legacy';
+    document.getElementById('settingsPlanningMode')?.setAttribute('value', planningMode);
+    const modeSelect = document.getElementById('settingsPlanningMode');
+    if (modeSelect) modeSelect.value = planningMode;
+    document.getElementById('pointScheduleDate')?.classList.remove('hidden');
+    document.getElementById('pointLegacyDay')?.classList.remove('hidden');
+    document.getElementById('pointLegacyDayLabel')?.classList.remove('hidden');
+    document.getElementById('pointScheduleHint')?.classList.remove('hidden');
+    document.getElementById('modalScheduleDate')?.classList.remove('hidden');
+    document.getElementById('modalScheduleDateLabel')?.classList.remove('hidden');
+    document.getElementById('modalLegacyDayLabel')?.classList.remove('hidden');
+    const mapHeading = document.querySelector('#mapPoints .form-section h2');
+    if (mapHeading) mapHeading.textContent = legacy ? 'Filter by day' : 'Filter by date';
+    syncPointEntryDefaults();
+    renderCalendar();
+    applyFilter();
+}
+
+function syncPointEntryDefaults() {
+    const dateInput = document.getElementById('pointScheduleDate');
+    const dayInput = document.getElementById('pointLegacyDay');
+    if (!dateInput || !dayInput) return;
+
+    if (planningMode === 'legacy') {
+        if (selectedOffset !== null) {
+            dayInput.value = selectedOffset;
+            if (tripStartDate) {
+                dateInput.value = calculateDateStringFromDay(selectedOffset) || '';
+            }
+        }
+    } else {
+        const defaultDate = selectedCalendarDateFilter || calendarSelectedDate || tripStartDate || formatCalendarDate(new Date());
+        dateInput.value = defaultDate;
+        if (tripStartDate) {
+            const day = calculateDayFromDateString(defaultDate);
+            dayInput.value = (day && day >= 1) ? day : '';
+        }
+    }
+}
+
+function formatCalendarDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function parseCalendarDate(value) {
+    const parts = String(value || '').split('-').map(Number);
+    return new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+}
+
+function calendarEventsForDate(date) {
+    return calendarEvents
+        .filter(event => event.date === date)
+        .sort((a, b) => {
+            if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+            return (a.startTime || '').localeCompare(b.startTime || '') || a.title.localeCompare(b.title);
+        });
+}
+
+function sortedCalendarEvents(events) {
+    return events.slice().sort((a, b) => {
+        if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+        if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+        return (a.startTime || '').localeCompare(b.startTime || '') || a.title.localeCompare(b.title);
+    });
+}
+
+function renderCalendarMonth() {
+    const grid = document.getElementById('calendarMonthGrid');
+    const label = document.getElementById('calendarMonthLabel');
+    const selectedLabel = document.getElementById('calendarSelectedLabel');
+    const agenda = document.getElementById('calendarAgendaList');
+    if (!grid || !label || !selectedLabel || !agenda) return;
+
+    const year = calendarCursor.getFullYear();
+    const month = calendarCursor.getMonth();
+    label.textContent = calendarCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    grid.innerHTML = '';
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = formatCalendarDate(new Date());
+    for (let index = 0; index < firstDay; index += 1) {
+        const empty = document.createElement('div');
+        empty.className = 'calendar-month-cell calendar-month-cell-empty';
+        grid.appendChild(empty);
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = formatCalendarDate(new Date(year, month, day));
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'calendar-month-cell';
+        if (date === today) cell.classList.add('today');
+        if (!calendarAgendaAllDates && date === calendarSelectedDate) cell.classList.add('selected');
+        const number = document.createElement('span');
+        number.className = 'calendar-date-number';
+        number.textContent = day;
+        cell.appendChild(number);
+        const events = calendarEventsForDate(date);
+        if (events.length) {
+            const markers = document.createElement('span');
+            markers.className = 'calendar-event-markers';
+            events.slice(0, 3).forEach(event => {
+                const marker = document.createElement('i');
+                marker.style.backgroundColor = event.color || 'var(--accent-400)';
+                markers.appendChild(marker);
+            });
+            cell.appendChild(markers);
+        }
+        cell.addEventListener('click', () => {
+            calendarAgendaAllDates = !calendarAgendaAllDates
+                && calendarSelectedDate === date
+                && selectedCalendarDateFilter === date;
+            calendarSelectedDate = date;
+            selectedCalendarDateFilter = calendarAgendaAllDates ? null : date;
+            renderCalendarMonth();
+            renderCalendar();
+            applyFilter();
+        });
+        grid.appendChild(cell);
+    }
+
+    const selectedDateObject = parseCalendarDate(calendarSelectedDate);
+    selectedLabel.textContent = calendarAgendaAllDates
+        ? 'All days'
+        : selectedDateObject.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    const selectedEvents = calendarAgendaAllDates ? sortedCalendarEvents(calendarEvents) : calendarEventsForDate(calendarSelectedDate);
+    const count = document.getElementById('calendarEventCount');
+    if (count) count.textContent = `${selectedEvents.length} ${selectedEvents.length === 1 ? 'event' : 'events'}`;
+    agenda.innerHTML = '';
+    if (!selectedEvents.length) {
+        agenda.innerHTML = '<div class="calendar-empty">Nothing scheduled yet.</div>';
+        renderCalendarTimeline(selectedEvents);
+        populateItineraryPointSelect();
+        return;
+    }
+    selectedEvents.forEach(event => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'calendar-agenda-item';
+        item.style.borderLeftColor = event.color || 'var(--accent-400)';
+        const time = event.allDay ? 'All day' : `${event.startTime || ''}${event.endTime ? ` - ${event.endTime}` : ''}`;
+        const links = [];
+        if (event.pointId) {
+            const point = points.find(itemPoint => itemPoint.id === event.pointId);
+            if (point) links.push(`Point: ${escapeHtml(point.name)}`);
+        }
+        if (event.taskId) {
+            const task = tasks.find(itemTask => itemTask.id === event.taskId);
+            if (task) links.push(`Task: ${escapeHtml(task.title)}`);
+        }
+        item.innerHTML = `<span class="calendar-agenda-time">${escapeHtml(time)}</span><span class="calendar-agenda-title">${escapeHtml(event.title)}</span>${event.description ? `<span class="calendar-agenda-description">${escapeHtml(event.description)}</span>` : ''}${links.length ? `<span class="calendar-agenda-links">${links.join(' &middot; ')}</span>` : ''}`;
+        item.addEventListener('click', () => openCalendarEventModal(event));
+        agenda.appendChild(item);
+    });
+    renderCalendarTimeline(selectedEvents);
+    populateItineraryPointSelect();
+}
+
+function renderCalendarTimeline(events) {
+    const timeline = document.getElementById('calendarTimeline');
+    if (!timeline) return;
+    timeline.innerHTML = '';
+    const timedEvents = events.filter(event => !event.allDay && event.startTime);
+    if (!timedEvents.length) return;
+    const heading = document.createElement('div');
+    heading.className = 'calendar-timeline-heading';
+    heading.textContent = 'Day timeline';
+    timeline.appendChild(heading);
+    timedEvents.forEach(event => {
+        const block = document.createElement('div');
+        block.className = `calendar-timeline-block ${event.kind || 'custom'}`;
+        block.style.borderLeftColor = event.color || 'var(--accent-400)';
+        block.innerHTML = `<span>${escapeHtml(event.startTime)} - ${escapeHtml(event.endTime || '')}</span><strong>${escapeHtml(event.title)}</strong><small>${escapeHtml(event.kind || 'custom')}</small>`;
+        block.addEventListener('click', () => openCalendarEventModal(event));
+        timeline.appendChild(block);
+    });
+}
+
+function populateItineraryPointSelect() {
+    const select = document.getElementById('itineraryPointSelect');
+    if (!select) return;
+    const scheduledIds = new Set(calendarEvents.filter(event => event.date === calendarSelectedDate && event.pointId).map(event => event.pointId));
+    select.innerHTML = '';
+    points.filter(point => !scheduledIds.has(point.id)).forEach(point => {
+        const option = new Option(point.name, String(point.id));
+        select.appendChild(option);
+    });
+}
+
+function renderItineraryPreview(preview) {
+    const container = document.getElementById('itineraryPreview');
+    const commitButton = document.getElementById('commitItineraryBtn');
+    if (!container || !commitButton) return;
+    itineraryPreviewData = preview;
+    container.classList.remove('hidden');
+    const conflictHtml = preview.conflicts?.length ? `<div class="itinerary-conflicts">${preview.conflicts.map(conflict => `<div>${escapeHtml(conflict)}</div>`).join('')}</div>` : '<div class="itinerary-ready">Ready to schedule.</div>';
+    const eventHtml = preview.events.map(event => `<div><strong>${escapeHtml(event.startTime)} - ${escapeHtml(event.endTime)}</strong> ${escapeHtml(event.title)}</div>`).join('');
+    container.innerHTML = `${conflictHtml}<div class="itinerary-preview-events">${eventHtml || 'No points selected.'}</div>`;
+    commitButton.classList.toggle('hidden', !!preview.conflicts?.length || !preview.events.length);
+}
+
+async function previewItinerary() {
+    if (!ensureProjectSelected()) return;
+    const select = document.getElementById('itineraryPointSelect');
+    const pointIds = Array.from(select?.selectedOptions || []).map(option => Number(option.value));
+    if (!pointIds.length) {
+        showToast('Select at least one unscheduled point', 'error');
+        return;
+    }
+    try {
+        const response = await fetch(buildUrl('/api/itinerary/plan'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: calendarSelectedDate, pointIds })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not plan itinerary');
+        renderItineraryPreview(result);
+    } catch (error) {
+        showToast(error.message, 'error', 1800);
+    }
+}
+
+async function commitItineraryPreview() {
+    if (!itineraryPreviewData || !ensureProjectSelected()) return;
+    try {
+        const response = await fetch(buildUrl('/api/itinerary/plan'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: itineraryPreviewData.date, pointIds: itineraryPreviewData.scheduledPointIds, commit: true })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not commit itinerary');
+        calendarEvents = result.calendar || calendarEvents.concat(result.events || []);
+        itineraryPreviewData = null;
+        document.getElementById('itineraryPreview')?.classList.add('hidden');
+        document.getElementById('commitItineraryBtn')?.classList.add('hidden');
+        renderCalendarMonth();
+        populateItineraryPointSelect();
+        showToast('Itinerary added to calendar', 'success');
+    } catch (error) {
+        showToast(error.message, 'error', 1800);
+    }
+}
+
+async function migrateLegacyDays() {
+    if (!ensureProjectSelected()) return;
+    const tripStartDate = document.getElementById('settingsTripStartDate')?.value;
+    if (!tripStartDate) {
+        showToast('Choose a trip start date first', 'error');
+        return;
+    }
+    try {
+        const response = await fetch(buildUrl('/api/itinerary/migrate-days'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tripStartDate })
+        });
+        const preview = await response.json();
+        if (!response.ok) throw new Error(preview.error || 'Migration preview failed');
+        if (!preview.events.length) {
+            showToast('No legacy numeric days need migration', 'info');
+            return;
+        }
+        const unmigrated = preview.unmigratedPointIds?.length || 0;
+        showConfirmation(`Create ${preview.events.length} all-day calendar visits from legacy days?${unmigrated ? ` ${unmigrated} point(s) will remain unscheduled.` : ''}`, async () => {
+            const commitResponse = await fetch(buildUrl('/api/itinerary/migrate-days'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tripStartDate, commit: true })
+            });
+            const result = await commitResponse.json();
+            if (!commitResponse.ok) throw new Error(result.error || 'Migration failed');
+            calendarEvents = result.calendar || calendarEvents;
+            renderCalendarMonth();
+            applyFilter();
+            showToast('Legacy days migrated to calendar dates', 'success');
+        });
+    } catch (error) {
+        showToast(error.message, 'error', 1800);
+    }
+}
+
+function populateCalendarLinkSelects(event = null) {
+    const pointSelect = document.getElementById('calendarEventPoint');
+    const taskSelect = document.getElementById('calendarEventTask');
+    if (!pointSelect || !taskSelect) return;
+    pointSelect.innerHTML = '<option value="">None</option>';
+    points.forEach(point => {
+        pointSelect.appendChild(new Option(point.name, String(point.id)));
+    });
+    taskSelect.innerHTML = '<option value="">None</option>';
+    tasks.forEach(task => {
+        taskSelect.appendChild(new Option(task.title, String(task.id)));
+    });
+    pointSelect.value = event?.pointId ? String(event.pointId) : '';
+    taskSelect.value = event?.taskId ? String(event.taskId) : '';
+}
+
+function openCalendarEventModal(event = null) {
+    if (!ensureProjectSelected()) return;
+    editingCalendarEvent = event;
+    const modal = document.getElementById('calendarEventModal');
+    document.getElementById('calendarEventModalTitle').textContent = event ? 'Edit event' : 'Add event';
+    document.getElementById('calendarEventTitle').value = event?.title || '';
+    document.getElementById('calendarEventDate').value = event?.date || calendarSelectedDate;
+    document.getElementById('calendarEventAllDay').checked = event ? event.allDay !== false : true;
+    document.getElementById('calendarEventStartTime').value = event?.startTime || '';
+    document.getElementById('calendarEventEndTime').value = event?.endTime || '';
+    document.getElementById('calendarEventDescription').value = event?.description || '';
+    document.getElementById('calendarEventColor').value = event?.color || '#1788f7';
+    document.getElementById('calendarEventDelete').style.display = event ? 'block' : 'none';
+    populateCalendarLinkSelects(event);
+    updateCalendarTimeFields();
+    modal.classList.remove('hidden');
+    document.getElementById('calendarEventTitle').focus();
+}
+
+function closeCalendarEventModal() {
+    document.getElementById('calendarEventModal')?.classList.add('hidden');
+    editingCalendarEvent = null;
+}
+
+function updateCalendarTimeFields() {
+    const allDay = document.getElementById('calendarEventAllDay')?.checked;
+    document.getElementById('calendarTimeFields')?.classList.toggle('hidden', allDay);
+}
+
+async function saveCalendarEvent() {
+    if (!ensureProjectSelected()) return;
+    const title = document.getElementById('calendarEventTitle').value.trim();
+    const date = document.getElementById('calendarEventDate').value;
+    const allDay = document.getElementById('calendarEventAllDay').checked;
+    if (!title || !date || (!allDay && !document.getElementById('calendarEventStartTime').value)) {
+        showToast('Add a title, date, and start time for timed events', 'error', 1800);
+        return;
+    }
+    const payload = {
+        title,
+        date,
+        allDay,
+        startTime: allDay ? null : document.getElementById('calendarEventStartTime').value,
+        endTime: allDay ? null : (document.getElementById('calendarEventEndTime').value || null),
+        description: document.getElementById('calendarEventDescription').value.trim(),
+        color: document.getElementById('calendarEventColor').value,
+        pointId: document.getElementById('calendarEventPoint').value || null,
+        taskId: document.getElementById('calendarEventTask').value || null
+    };
+    const path = editingCalendarEvent ? `/api/calendar/${editingCalendarEvent.id}` : '/api/calendar';
+    try {
+        const response = await fetch(buildUrl(path), {
+            method: editingCalendarEvent ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || 'calendar save failed');
+        }
+        calendarSelectedDate = date;
+        calendarCursor = parseCalendarDate(date);
+        closeCalendarEventModal();
+        showToast(editingCalendarEvent ? 'Event updated' : 'Event added', 'success');
+    } catch (error) {
+        showToast(error.message || 'Could not save event', 'error', 1800);
+    }
+}
+
+async function deleteCalendarEvent() {
+    if (!editingCalendarEvent || !ensureProjectSelected()) return;
+    try {
+        const response = await fetch(buildUrl(`/api/calendar/${editingCalendarEvent.id}`), { method: 'DELETE' });
+        if (!response.ok) throw new Error('delete failed');
+        closeCalendarEventModal();
+        showToast('Event deleted', 'success');
+    } catch (error) {
+        showToast('Could not delete event', 'error');
     }
 }
 
 function applyFilter() {
-    let filtered = (selectedOffset === null || selectedOffset <= 0) ? points.slice() : points.filter(p => p.day === selectedOffset);
+    let filtered;
+    if (planningMode === 'legacy') {
+        filtered = selectedOffset === null ? points.slice() : points.filter(point => point.day === selectedOffset);
+    } else {
+        filtered = selectedCalendarDateFilter ? points.filter(point => calendarEvents.some(event => event.pointId === point.id && event.date === selectedCalendarDateFilter)) : points.slice();
+    }
     if (selectedCategoryFilter) {
         filtered = filtered.filter(p => normalizeCategoryId(p.categoryId) === selectedCategoryFilter);
     }
@@ -1044,7 +1720,21 @@ function showAddModal() {
     openModal('Add Point');
     document.getElementById('modalName').value = '';
     document.getElementById('modalAddress').value = '';
-    document.getElementById('modalDay').value = '';
+    document.getElementById('modalScheduleDate').value = '';
+    document.getElementById('modalLegacyDay').value = '';
+    if (planningMode === 'legacy' && selectedOffset !== null) {
+        document.getElementById('modalLegacyDay').value = selectedOffset;
+        if (tripStartDate) {
+            document.getElementById('modalScheduleDate').value = calculateDateStringFromDay(selectedOffset) || '';
+        }
+    } else if (planningMode === 'calendar') {
+        const defaultDate = selectedCalendarDateFilter || calendarSelectedDate || tripStartDate || formatCalendarDate(new Date());
+        document.getElementById('modalScheduleDate').value = defaultDate;
+        if (tripStartDate) {
+            const day = calculateDayFromDateString(defaultDate);
+            if (day && day >= 1) document.getElementById('modalLegacyDay').value = day;
+        }
+    }
     document.getElementById('modalCategory').value = 'point';
     document.getElementById('modalDescription').value = '';
     document.getElementById('modalPhoto').value = '';
@@ -1058,7 +1748,20 @@ function showEditModal(point) {
     editingPointOriginal = { lat: point.lat, lng: point.lng }; // store originals
     document.getElementById('modalName').value = point.name || '';
     document.getElementById('modalAddress').value = '';
-    document.getElementById('modalDay').value = point.day || '';
+    const linkedEvent = calendarEvents.find(event => event.pointId === point.id && event.kind === 'visit');
+    let schedDate = linkedEvent?.date || '';
+    let legDay = (point.day !== null && point.day !== undefined && point.day !== '') ? point.day : '';
+
+    if (schedDate && !legDay && tripStartDate) {
+        const calcDay = calculateDayFromDateString(schedDate);
+        if (calcDay && calcDay >= 1) legDay = calcDay;
+    } else if (legDay && !schedDate && tripStartDate) {
+        const calcDate = calculateDateStringFromDay(legDay);
+        if (calcDate) schedDate = calcDate;
+    }
+
+    document.getElementById('modalScheduleDate').value = schedDate;
+    document.getElementById('modalLegacyDay').value = legDay;
     document.getElementById('modalCategory').value = normalizeCategoryId(point.categoryId);
     document.getElementById('modalDescription').value = point.description || '';
     document.getElementById('modalPhoto').value = point.photo || '';
@@ -1073,7 +1776,8 @@ async function addPointFromForm() {
     if (!ensureProjectSelected()) return;
     const name = document.getElementById('pointName').value.trim();
     let address = document.getElementById('pointAddress').value.trim();
-    const dayVal = document.getElementById('pointDay').value.trim();
+    let scheduleDate = document.getElementById('pointScheduleDate').value;
+    let legacyDay = String(document.getElementById('pointLegacyDay').value || '').trim();
     const description = document.getElementById('pointDescription').value.trim();
     const photo = document.getElementById('pointPhoto').value.trim();
 
@@ -1086,23 +1790,38 @@ async function addPointFromForm() {
         address = name;
     }
 
+    if (legacyDay) {
+        const dayNum = parseInt(legacyDay, 10);
+        if (isNaN(dayNum) || dayNum < 1) {
+            showToast('Day number must be 1 or greater.', 'error', 2500);
+            return;
+        }
+        if (!scheduleDate && tripStartDate) {
+            scheduleDate = calculateDateStringFromDay(dayNum) || '';
+        }
+    } else if (scheduleDate && tripStartDate) {
+        const calcDay = calculateDayFromDateString(scheduleDate);
+        if (calcDay && calcDay >= 1) {
+            legacyDay = String(calcDay);
+        }
+    }
+
     const addBtn = document.getElementById('addPointBtn');
     addBtn.disabled = true;
     addBtn.textContent = 'Geocoding...';
 
     try {
-            const geocoded = await geocodeAddress(address);
+        const geocoded = await geocodeAddress(address);
         if (!geocoded) {
             showToast('Could not find address. Please try a different one.', 'error');
             return;
         }
 
-        const day = dayVal ? parseInt(dayVal, 10) : null;
         const payload = {
             name,
             lat: geocoded.lat,
             lng: geocoded.lng,
-            day,
+            day: legacyDay ? parseInt(legacyDay, 10) : null,
             description,
             photo,
             categoryId: normalizeCategoryId(document.getElementById('pointCategory')?.value)
@@ -1114,17 +1833,24 @@ async function addPointFromForm() {
             body: JSON.stringify(payload)
         });
 
-        if (!res.ok) throw new Error('Failed to add point');
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            throw new Error(error.error || 'Failed to add point');
+        }
+        const createdPoint = await res.json();
+        await syncPointSchedule(createdPoint, scheduleDate);
 
         document.getElementById('pointName').value = '';
         document.getElementById('pointAddress').value = '';
-        document.getElementById('pointDay').value = '';
+        document.getElementById('pointScheduleDate').value = '';
+        document.getElementById('pointLegacyDay').value = '';
         document.getElementById('pointDescription').value = '';
         document.getElementById('pointPhoto').value = '';
+        syncPointEntryDefaults();
         showToast('Point added!', 'success');
     } catch (err) {
         console.error(err);
-        showToast('Error adding point', 'error');
+        showToast(err.message || 'Error adding point', 'error');
     } finally {
         addBtn.disabled = false;
         addBtn.textContent = '+ Add Point';
@@ -1147,7 +1873,8 @@ async function saveModalPoint() {
     const saveBtn = document.getElementById('modalSave');
     const name = document.getElementById('modalName').value.trim();
     let address = document.getElementById('modalAddress').value.trim();
-    const dayVal = document.getElementById('modalDay').value.trim();
+    let scheduleDate = document.getElementById('modalScheduleDate').value;
+    let legacyDay = String(document.getElementById('modalLegacyDay').value || '').trim();
     const description = document.getElementById('modalDescription').value.trim();
     const photo = document.getElementById('modalPhoto').value.trim();
 
@@ -1158,6 +1885,22 @@ async function saveModalPoint() {
     }
     if (!address) {
         address = name;
+    }
+
+    if (legacyDay) {
+        const dayNum = parseInt(legacyDay, 10);
+        if (isNaN(dayNum) || dayNum < 1) {
+            showToast('Day number must be 1 or greater.', 'error', 2500);
+            return;
+        }
+        if (!scheduleDate && tripStartDate) {
+            scheduleDate = calculateDateStringFromDay(dayNum) || '';
+        }
+    } else if (scheduleDate && tripStartDate) {
+        const calcDay = calculateDayFromDateString(scheduleDate);
+        if (calcDay && calcDay >= 1) {
+            legacyDay = String(calcDay);
+        }
     }
 
     saveBtn.disabled = true;
@@ -1193,12 +1936,11 @@ async function saveModalPoint() {
             lng = geocoded.lng;
         }
 
-        const day = dayVal ? parseInt(dayVal, 10) : null;
         const payload = {
             name,
             lat,
             lng,
-            day,
+            day: legacyDay ? parseInt(legacyDay, 10) : null,
             description,
             photo,
             categoryId: normalizeCategoryId(document.getElementById('modalCategory')?.value)
@@ -1213,15 +1955,55 @@ async function saveModalPoint() {
             body: JSON.stringify(payload)
         });
 
-        if (!res.ok) throw new Error('Save failed');
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            throw new Error(error.error || 'Save failed');
+        }
+        const savedPoint = currentEditing ? { id: currentEditing, name } : await res.json();
+        await syncPointSchedule(savedPoint, scheduleDate);
         closeModal();
     } catch (err) {
         console.error(err);
-        showToast('Error saving point', 'error');
+        showToast(err.message || 'Error saving point', 'error');
     } finally {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
     }
+}
+
+async function syncPointSchedule(point, scheduleDate) {
+    const linked = calendarEvents.find(event => event.pointId === point.id && event.kind === 'visit');
+    if (!scheduleDate && linked) {
+        const response = await fetch(buildUrl(`/api/calendar/${linked.id}`), { method: 'DELETE' });
+        if (!response.ok) throw new Error('Could not unschedule point');
+        calendarEvents = calendarEvents.filter(event => event.id !== linked.id);
+        renderCalendarMonth();
+        return;
+    }
+    if (!scheduleDate) return;
+    const payload = {
+        title: point.name || 'Point visit',
+        date: scheduleDate,
+        allDay: true,
+        kind: 'visit',
+        pointId: point.id,
+        color: '#1788f7'
+    };
+    const response = await fetch(buildUrl(linked ? `/api/calendar/${linked.id}` : '/api/calendar'), {
+        method: linked ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error('Could not schedule point');
+    const event = await response.json();
+    if (linked) {
+        Object.assign(linked, event);
+    } else {
+        calendarEvents = calendarEvents.filter(existing => existing.id !== event.id);
+        calendarEvents.push(event);
+    }
+    calendarSelectedDate = scheduleDate;
+    renderCalendarMonth();
 }
 
 function deleteModalPoint() {
@@ -1260,30 +2042,80 @@ function downloadJSON() {
 
 function importJSON() {
     if (!ensureProjectSelected()) return;
+    if (document.getElementById('importModal')?.dataset.importMode === 'calendar') {
+        return importCalendarJSON();
+    }
     const text = document.getElementById('importJsonText').value.trim();
     if (!text) {
         showToast('Paste some JSON', 'error');
         return;
     }
     try {
-        const arr = JSON.parse(text);
-        if (!Array.isArray(arr)) throw new Error('Expected an array');
-        Promise.all(arr.map(p => fetch(buildUrl('/api/points'), {
+        const payload = JSON.parse(text);
+        const imported = Array.isArray(payload) ? payload : payload.points;
+        if (!Array.isArray(imported)) throw new Error('Expected an array of points or an exported points file');
+        fetch(buildUrl('/api/import/points'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: p.name || 'Imported', lat: p.lat, lng: p.lng, day: p.day || null, description: p.description || '', photo: p.photo || '', categoryId: p.categoryId || 'point' })
-        })))
-            .then(() => {
-                showToast('Import complete!', 'success');
-                closeImportModal();
-            })
-            .catch(err => {
-                console.error(err);
-                showToast('Import failed', 'error');
-            });
+            body: JSON.stringify({ points: imported })
+        }).then(async response => {
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details?.join(' ') || result.error || 'Import failed');
+            await reloadData();
+            showToast(`Imported ${result.count} point(s)`, 'success');
+            closeImportModal();
+        }).catch(err => {
+            console.error(err);
+            showToast(err.message || 'Import failed', 'error', 2200);
+        });
     } catch (err) {
         showToast('Invalid JSON', 'error');
     }
+}
+
+async function importCalendarJSON() {
+    if (!ensureProjectSelected()) return;
+    const text = document.getElementById('importJsonText').value.trim();
+    if (!text) {
+        showToast('Paste some calendar JSON', 'error');
+        return;
+    }
+    try {
+        const payload = JSON.parse(text);
+        const imported = Array.isArray(payload) ? payload : payload.events;
+        if (!Array.isArray(imported)) throw new Error('Expected an array of calendar events or an exported calendar file');
+        const response = await fetch(buildUrl('/api/import/calendar'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ events: imported })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.details?.join(' ') || result.error || 'Calendar import failed');
+        calendarEvents = result.events ? calendarEvents.concat(result.events) : calendarEvents;
+        renderCalendarMonth();
+        applyFilter();
+        showToast(`Imported ${result.count} calendar event(s)`, 'success');
+        closeImportModal();
+    } catch (error) {
+        showToast(error.message || 'Calendar import failed', 'error', 2200);
+    }
+}
+
+function exportCalendar() {
+    if (!ensureProjectSelected()) return;
+    window.location.href = buildUrl('/api/download/calendar');
+    closeAllMenus();
+}
+
+function importCalendar() {
+    if (!ensureProjectSelected()) return;
+    const modal = document.getElementById('importModal');
+    const textarea = document.getElementById('importJsonText');
+    modal.classList.remove('hidden');
+    textarea.value = '';
+    modal.dataset.importMode = 'calendar';
+    textarea.placeholder = 'Paste an exported calendar JSON file here';
+    closeAllMenus();
 }
 
 function clearAllPoints() {
@@ -1333,31 +2165,29 @@ function clearAllTasks() {
 
 function atoss() {
     if (!ensureProjectSelected()) return;
-    const unscheduled = points.filter(p => p.day === null || p.day === undefined);
-    if (unscheduled.length === 0) {
-        showToast('All points are already scheduled!', 'info');
+    if (planningMode === 'calendar') {
+        showToast('Calendar mode uses calendar events. Add or import events from the Calendar tab.', 'info', 2200);
         closeAllMenus();
         return;
     }
-    showConfirmation(`Smart plan: group ${unscheduled.length} point(s) into ~${maxDays} clusters by location?`, () => {
-        fetch(buildUrl('/api/organize-days'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ maxDays })
-        })
-            .then(res => {
-                if (!res.ok) throw new Error('Organization failed');
-                return res.json();
-            })
-            .then(data => {
-                showToast(`Smart planning complete! Grouped ${data.points} point(s) into ${data.clusters} cluster(s)`, 'success');
-            })
-            .catch(err => {
-                console.error('ATOSS error:', err);
-                showToast('Failed to organize points', 'error');
-            })
-            .finally(() => closeAllMenus());
-    });
+    const scheduledPointIds = new Set(calendarEvents.filter(event => event.pointId).map(event => event.pointId));
+    const unscheduled = points.filter(point => !scheduledPointIds.has(point.id));
+    if (unscheduled.length === 0) {
+        showToast('All points are already scheduled on the calendar.', 'info');
+        closeAllMenus();
+        return;
+    }
+    switchTab('calendar');
+    calendarSelectedDate = calendarSelectedDate || tripStartDate || formatCalendarDate(new Date());
+    calendarCursor = parseCalendarDate(calendarSelectedDate);
+    renderCalendarMonth();
+    const select = document.getElementById('itineraryPointSelect');
+    if (select) {
+        Array.from(select.options).forEach(option => {
+            option.selected = unscheduled.some(point => String(point.id) === option.value);
+        });
+    }
+    previewItinerary();
     closeAllMenus();
 }
 
@@ -1367,6 +2197,14 @@ function openModalSettings() {
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
     document.getElementById('settingsMaxDays').value = maxDays;
+    document.getElementById('settingsPlanningMode').value = planningMode;
+    fetch(buildUrl('/api/settings')).then(response => response.json()).then(settings => {
+        document.getElementById('settingsTripStartDate').value = settings.tripStartDate || '';
+        tripStartDate = settings.tripStartDate || null;
+        document.getElementById('settingsDayStartTime').value = settings.dayStartTime || '08:00';
+        document.getElementById('settingsDayEndTime').value = settings.dayEndTime || '22:00';
+        document.getElementById('settingsVisitMinutes').value = settings.defaultVisitMinutes || 60;
+    }).catch(() => {});
     const cb = document.getElementById('settingsAutoFetch');
     if (cb) cb.checked = !!autoFetchImage;
     renderCategorySettings();
@@ -1395,8 +2233,36 @@ function closeModalSettings() {
     }
 }
 
-function saveSettings() {
+function clearAllCalendar() {
+    if (!ensureProjectSelected()) return;
+    const eventCount = calendarEvents.length;
+    if (!eventCount) {
+        showToast('Calendar is already empty', 'info');
+        return;
+    }
+    showConfirmation(`Clear all ${eventCount} calendar event(s)? This cannot be undone. Points and tasks will stay.`, async () => {
+        try {
+            const response = await fetch(buildUrl('/api/calendar'), { method: 'DELETE' });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not clear calendar');
+            calendarEvents = [];
+            itineraryPreviewData = null;
+            renderCalendarMonth();
+            applyFilter();
+            showToast('Calendar cleared', 'success');
+        } catch (error) {
+            showToast(error.message || 'Could not clear calendar', 'error', 1800);
+        }
+    });
+}
+
+async function saveSettings() {
     const v = parseInt(document.getElementById('settingsMaxDays').value, 10) || 7;
+    const selectedPlanningMode = document.getElementById('settingsPlanningMode').value === 'legacy' ? 'legacy' : 'calendar';
+    const selectedTripStartDate = document.getElementById('settingsTripStartDate').value || null;
+    const dayStartTime = document.getElementById('settingsDayStartTime').value || '08:00';
+    const dayEndTime = document.getElementById('settingsDayEndTime').value || '22:00';
+    const defaultVisitMinutes = parseInt(document.getElementById('settingsVisitMinutes').value, 10) || 60;
     const auto = !!(document.getElementById('settingsAutoFetch') && document.getElementById('settingsAutoFetch').checked);
     const categoriesFromUI = Array.from(document.querySelectorAll('#categoryList .category-row')).map(row => {
         const nameInput = row.querySelector('.category-name');
@@ -1420,19 +2286,38 @@ function saveSettings() {
     }
     renderCategoryFilters();
     populateCategorySelects();
-    // send updated setting to server, which will broadcast to other clients
-    fetch(buildUrl('/api/settings'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxDays: v, autoFetchImage: auto, categories: categoriesFromUI })
-    }).then(r => r.json()).then(data => {
+    try {
+        if (selectedPlanningMode !== planningMode) {
+            const switchResponse = await fetch(buildUrl('/api/planning/switch'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ planningMode: selectedPlanningMode, tripStartDate: selectedTripStartDate })
+            });
+            const switchData = await switchResponse.json();
+            if (!switchResponse.ok) throw new Error(switchData.error || 'Could not switch planning system');
+            points = switchData.points || points;
+            calendarEvents = switchData.events || calendarEvents;
+            planningMode = selectedPlanningMode;
+        }
+        const response = await fetch(buildUrl('/api/settings'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ planningMode: selectedPlanningMode, maxDays: v, autoFetchImage: auto, categories: categoriesFromUI, tripStartDate: selectedTripStartDate, dayStartTime, dayEndTime, defaultVisitMinutes })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not save settings');
         if (data.settings) {
+            tripStartDate = data.settings.tripStartDate || null;
+            setCalendarFocusDate(tripStartDate);
             if (typeof data.settings.maxDays === 'number') {
                 maxDays = data.settings.maxDays;
                 localStorage.setItem('maxDays', maxDays);
-                renderCalendar();
-                applyFilter();
             }
+            renderCalendar();
+            renderCalendarMonth();
+            applyFilter();
+            planningMode = data.settings.planningMode === 'legacy' ? 'legacy' : 'calendar';
+            updatePlanningModeUI();
             if (typeof data.settings.autoFetchImage !== 'undefined') {
                 autoFetchImage = !!data.settings.autoFetchImage;
             }
@@ -1443,8 +2328,12 @@ function saveSettings() {
                 renderCategorySettings();
             }
         }
-    }).catch(err => console.error('saveSettings error', err));
-    closeModalSettings();
+        showToast('Settings saved', 'success');
+        closeModalSettings();
+    } catch (err) {
+        console.error('saveSettings error', err);
+        showToast(err.message || 'Could not save settings', 'error', 2200);
+    }
 }
 
 function openImportModal() {
@@ -1453,6 +2342,8 @@ function openImportModal() {
     modal.classList.remove('hidden');
     const textarea = document.getElementById('importJsonText'); 
     textarea.value = '';
+    modal.dataset.importMode = 'points';
+    textarea.placeholder = 'Paste exported points JSON here';
     closeAllMenus();
 
     // Add "Choose file" button if not already present
@@ -1486,7 +2377,7 @@ function openImportModal() {
     const handleKeydown = (e) => {
         if (e.key === 'Enter' && e.ctrlKey) {
             // Ctrl+Enter to import (since textarea might have multiple lines)
-            importJson();
+            importJSON();
         } else if (e.key === 'Escape') {
             closeImportModal();
         }
@@ -1499,6 +2390,7 @@ function openImportModal() {
 function closeImportModal() {
     const modal = document.getElementById('importModal');
     modal.classList.add('hidden');
+    modal.dataset.importMode = 'points';
     if (modal._keydownHandler) {
         document.removeEventListener('keydown', modal._keydownHandler);
         modal._keydownHandler = null;
@@ -1538,14 +2430,10 @@ function switchTab(tabName) {
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
-        btn.style.color = 'var(--text-2)';
-        btn.style.borderBottom = '2px solid transparent';
     });
     const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
     if (activeBtn) {
         activeBtn.classList.add('active');
-        activeBtn.style.color = 'var(--text-1)';
-        activeBtn.style.borderBottom = '2px solid var(--accent-color)';
     }
     
     // Invalidate map size if switching from hidden state
@@ -1890,6 +2778,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (openModals.length > 0) {
                 openModals.forEach(modal => {
                     if (modal.id === 'pointModal') closeModal();
+                        else if (modal.id === 'calendarEventModal') closeCalendarEventModal();
                     else if (modal.id === 'settingsModal') closeModalSettings();
                     else if (modal.id === 'importModal') closeImportModal();
                     else if (modal.id === 'confirmationModal') hideConfirmation();
@@ -1949,10 +2838,33 @@ document.addEventListener('DOMContentLoaded', function() {
     const addBtn = document.getElementById('addPointBtn');
     if (addBtn) addBtn.addEventListener('click', addPointFromForm);
 
+    // Synchronize Date and Day inputs in sidebar
+    const pointScheduleDateEl = document.getElementById('pointScheduleDate');
+    const pointLegacyDayEl = document.getElementById('pointLegacyDay');
+    if (pointScheduleDateEl && pointLegacyDayEl) {
+        pointScheduleDateEl.addEventListener('input', () => {
+            syncDateToDay(pointScheduleDateEl, pointLegacyDayEl);
+        });
+        pointLegacyDayEl.addEventListener('input', () => {
+            syncDayToDate(pointLegacyDayEl, pointScheduleDateEl);
+        });
+    }
+
+    // Synchronize Date and Day inputs in modal
+    const modalScheduleDateEl = document.getElementById('modalScheduleDate');
+    const modalLegacyDayEl = document.getElementById('modalLegacyDay');
+    if (modalScheduleDateEl && modalLegacyDayEl) {
+        modalScheduleDateEl.addEventListener('input', () => {
+            syncDateToDay(modalScheduleDateEl, modalLegacyDayEl);
+        });
+        modalLegacyDayEl.addEventListener('input', () => {
+            syncDayToDate(modalLegacyDayEl, modalScheduleDateEl);
+        });
+    }
+
     // Add keyboard support for point form
     const pointNameInput = document.getElementById('pointName');
     const pointAddressInput = document.getElementById('pointAddress');
-    const pointDayInput = document.getElementById('pointDay');
     const pointDescriptionTextarea = document.getElementById('pointDescription');
     const pointPhotoInput = document.getElementById('pointPhoto');
 
@@ -1967,13 +2879,49 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (pointNameInput) pointNameInput.addEventListener('keydown', handlePointFormKeydown);
     if (pointAddressInput) pointAddressInput.addEventListener('keydown', handlePointFormKeydown);
-    if (pointDayInput) pointDayInput.addEventListener('keydown', handlePointFormKeydown);
+    if (pointScheduleDateEl) pointScheduleDateEl.addEventListener('keydown', handlePointFormKeydown);
+    if (pointLegacyDayEl) pointLegacyDayEl.addEventListener('keydown', handlePointFormKeydown);
     if (pointDescriptionTextarea) pointDescriptionTextarea.addEventListener('keydown', handlePointFormKeydown);
     if (pointPhotoInput) pointPhotoInput.addEventListener('keydown', handlePointFormKeydown);
 
     // Task list add button
     const addTaskBtn = document.getElementById('addTaskBtn');
     if (addTaskBtn) addTaskBtn.addEventListener('click', addTaskFromForm);
+
+    document.getElementById('addCalendarEventBtn')?.addEventListener('click', () => openCalendarEventModal());
+    document.getElementById('calendarPrevious')?.addEventListener('click', () => {
+        calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
+        renderCalendarMonth();
+        renderCalendar();
+    });
+    document.getElementById('calendarNext')?.addEventListener('click', () => {
+        calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1);
+        renderCalendarMonth();
+        renderCalendar();
+    });
+    document.getElementById('calendarToday')?.addEventListener('click', () => {
+        const today = new Date();
+        calendarCursor = today;
+        calendarSelectedDate = formatCalendarDate(today);
+        calendarAgendaAllDates = false;
+        selectedCalendarDateFilter = calendarSelectedDate;
+        renderCalendarMonth();
+        renderCalendar();
+        applyFilter();
+    });
+    document.getElementById('calendarShowAll')?.addEventListener('click', () => {
+        calendarAgendaAllDates = true;
+        selectedCalendarDateFilter = null;
+        renderCalendarMonth();
+        renderCalendar();
+        applyFilter();
+    });
+    document.getElementById('calendarEventAllDay')?.addEventListener('change', updateCalendarTimeFields);
+    document.getElementById('calendarEventSave')?.addEventListener('click', saveCalendarEvent);
+    document.getElementById('calendarEventDelete')?.addEventListener('click', deleteCalendarEvent);
+    document.getElementById('calendarEventCancel')?.addEventListener('click', closeCalendarEventModal);
+    document.getElementById('planItineraryBtn')?.addEventListener('click', previewItinerary);
+    document.getElementById('commitItineraryBtn')?.addEventListener('click', commitItineraryPreview);
 
     // Add keyboard support for task form
     const taskTitleInput = document.getElementById('taskTitle');
@@ -2013,6 +2961,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (settingsCancel) settingsCancel.addEventListener('click', closeModalSettings);
     const addCategoryBtn = document.getElementById('addCategoryBtn');
     if (addCategoryBtn) addCategoryBtn.addEventListener('click', () => addCategoryRow({ id: '', name: 'New Category', color: '#9b59b6' }));
+    document.getElementById('clearCalendarBtn')?.addEventListener('click', clearAllCalendar);
+    document.getElementById('clearPointsSettingsBtn')?.addEventListener('click', clearAllPoints);
+    document.getElementById('clearTasksSettingsBtn')?.addEventListener('click', clearAllTasks);
 
     // Import modal
     const importSave = document.getElementById('importSave');
@@ -2073,13 +3024,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const deleteProjectItem = document.getElementById('deleteProjectItem');
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
+    const importCalendarItem = document.getElementById('importCalendarItem');
+    const exportCalendarItem = document.getElementById('exportCalendarItem');
     const importTasksItem = document.getElementById('importTasksItem');
     const exportTasksItem = document.getElementById('exportTasksItem');
-    const clearAllItem = document.getElementById('clearAllItem');
-    const clearAllTasksItem = document.getElementById('clearAllTasksItem');
     const mapPointsTab = document.getElementById('mapPointsTab');
     const routePlannerTab = document.getElementById('routePlannerTab');
     const taskListTab = document.getElementById('taskListTab');
+    const calendarTab = document.getElementById('calendarTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
     const settingsItem = document.getElementById('settingsItem');
     const createProjectSave = document.getElementById('createProjectSave');
@@ -2088,13 +3040,14 @@ document.addEventListener('DOMContentLoaded', function() {
     if (deleteProjectItem) deleteProjectItem.addEventListener('click', () => { deleteCurrentProject(); closeAllMenus(); });
     if (exportJsonItem) exportJsonItem.addEventListener('click', downloadJSON);
     if (importJsonItem) importJsonItem.addEventListener('click', openImportModal);
+    if (importCalendarItem) importCalendarItem.addEventListener('click', importCalendar);
+    if (exportCalendarItem) exportCalendarItem.addEventListener('click', exportCalendar);
     if (importTasksItem) importTasksItem.addEventListener('click', importTasks);
     if (exportTasksItem) exportTasksItem.addEventListener('click', exportTasks);
-    if (clearAllItem) clearAllItem.addEventListener('click', clearAllPoints);
-    if (clearAllTasksItem) clearAllTasksItem.addEventListener('click', clearAllTasks);
     if (mapPointsTab) mapPointsTab.addEventListener('click', () => { switchTab('mapPoints'); closeAllMenus(); });
     if (routePlannerTab) routePlannerTab.addEventListener('click', () => { switchTab('routePlanner'); closeAllMenus(); });
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
+    if (calendarTab) calendarTab.addEventListener('click', () => { switchTab('calendar'); closeAllMenus(); });
     if (organizeDaysItem) organizeDaysItem.addEventListener('click', atoss);
     if (settingsItem) settingsItem.addEventListener('click', openModalSettings);
     if (createProjectSave) createProjectSave.addEventListener('click', createProject);

@@ -27,11 +27,12 @@
                         <div class="menu-item" id="importJsonItem">Import Points</div>
                         <div class="menu-item" id="exportJsonItem">Export Points</div>
                         <div style="height:1px; background: #e0e0e0; margin: 0.2rem 0;"></div>
+                        <div class="menu-item" id="importCalendarItem">Import Calendar</div>
+                        <div class="menu-item" id="exportCalendarItem">Export Calendar</div>
+                        <div style="height:1px; background: #e0e0e0; margin: 0.2rem 0;"></div>
                         <div class="menu-item" id="importTasksItem">Import Tasks</div>
                         <div class="menu-item" id="exportTasksItem">Export Tasks</div>
                         <div style="height:1px; background: #e0e0e0; margin: 0.2rem 0;"></div>
-                        <div class="menu-item" id="clearAllItem">Clear All Points</div>
-                        <div class="menu-item" id="clearAllTasksItem">Clear All tasks</div>
                     </div>
                 </li>
                 <li><a href="#" id="toolsMenu">Plan</a>
@@ -39,6 +40,7 @@
                         <div class="menu-item" id="mapPointsTab">Map Points</div>
                         <div class="menu-item" id="routePlannerTab">Route Planner</div>
                         <div class="menu-item" id="taskListTab">Task List</div>
+                        <div class="menu-item" id="calendarTab">Calendar</div>
                         <div style="height:1px; background: #e0e0e0; margin: 0.2rem 0;"></div>
                         <div class="menu-item" id="organizeDaysItem">ATOSS</div>
                         <div class="menu-item" id="settingsItem">Settings</div>
@@ -55,10 +57,11 @@
         <aside class="sidebar hidden-mobile">
             <div class="card">
                 <!-- Tab Navigation -->
-                <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
-                    <button class="tab-btn active" data-tab="mapPoints" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-1); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Map Points</button>
-                    <button class="tab-btn" data-tab="routePlanner" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-2); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Route</button>
-                    <button class="tab-btn" data-tab="taskList" style="flex:1; padding:8px 12px; text-align:center; border:none; background:none; color:var(--text-2); cursor:pointer; font-weight:500; border-bottom:2px solid transparent; transition:all 0.2s;">Task List</button>
+                <div class="tab-navigation">
+                    <button class="tab-btn active" data-tab="mapPoints">Map Points</button>
+                    <button class="tab-btn" data-tab="routePlanner">Route</button>
+                    <button class="tab-btn" data-tab="taskList">Task List</button>
+                    <button class="tab-btn" data-tab="calendar">Calendar</button>
                 </div>
 
                 <!-- Map Points Tab -->
@@ -68,7 +71,7 @@
                         <p>Manage your location markers</p>
                     </div>
                     <div class="form-section">
-                        <h2>Filter by Day</h2>
+                        <h2>Filter by date</h2>
                         <div id="calendarDays" class="calendar-days"></div>
                     </div>
                     <div class="form-section">
@@ -80,7 +83,13 @@
                         <h2>Add Point</h2>
                         <input type="text" id="pointName" placeholder="Point name" class="input-field">
                         <input type="text" id="pointAddress" placeholder="Search address (e.g. 980 Broadway, NYC)" class="input-field">
-                        <input type="number" id="pointDay" placeholder="Day (optional)" min="1" class="input-field">
+                        <label style="font-size:0.85rem;color:var(--text-2);margin-bottom:0.2rem;display:block;">Schedule date (optional):
+                            <input type="date" id="pointScheduleDate" class="input-field" aria-label="Schedule point date">
+                        </label>
+                        <label id="pointLegacyDayLabel" style="font-size:0.85rem;color:var(--text-2);margin-bottom:0.2rem;display:block;">Day (optional):
+                            <input type="number" id="pointLegacyDay" placeholder="Day" min="1" class="input-field">
+                        </label>
+                        <small id="pointScheduleHint" class="field-hint">Date and day automatically sync when a trip start date is set.</small>
                         <label>Category:<br><select id="pointCategory" class="input-field"></select></label>
                         <textarea id="pointDescription" placeholder="Description (optional)" class="input-field" style="resize:vertical;height:60px;"></textarea>
                         <input type="url" id="pointPhoto" placeholder="Photo URL (optional)" class="input-field">
@@ -91,9 +100,6 @@
                         <h2>Points (<span id="pointCount">0</span>)</h2>
                         <input type="text" id="searchFilter" placeholder="Search points..." class="input-field">
                         <ul id="pointsList" class="list"></ul>
-                        <!-- to ugly
-                        <button onclick="clearAllPoints()" class="action-btn">Clear All Points</button>
-                        -->
                     </div>
                 </div>
 
@@ -141,17 +147,42 @@
                     <div class="form-section">
                         <h2>Tasks (<span id="taskCount">0</span>)</h2>
                         <ul id="tasksList" class="list"></ul>
-                        <!-- too ugly
-                        <button onclick="importTasks()" class="action-btn">Import Tasks</button>
-                        <button onclick="exportTasks()" class="action-btn">Export Tasks</button>
-                        <button onclick="clearAllTasks()" class="action-btn">Clear All Tasks</button>
-                        -->
+                    </div>
+                </div>
+
+                <!-- Calendar Tab -->
+                <div id="calendar" class="tab-content hidden">
+                    <div class="calendar-heading">
+                        <div>
+                            <h1>Calendar</h1>
+                            <p>Shape your days with places, tasks, and time.</p>
+                        </div>
+                        <button id="addCalendarEventBtn" class="action-btn add-btn" type="button">+ Add event</button>
+                    </div>
+                    <div class="calendar-toolbar">
+                        <button id="calendarPrevious" class="calendar-nav-btn" type="button" aria-label="Previous month">&larr;</button>
+                        <button id="calendarToday" class="calendar-today-btn" type="button">Today</button>
+                        <button id="calendarNext" class="calendar-nav-btn" type="button" aria-label="Next month">&rarr;</button>
+                        <strong id="calendarMonthLabel"></strong>
+                    </div>
+                    <div class="calendar-weekdays" aria-hidden="true">
+                        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+                    <div id="calendarMonthGrid" class="calendar-month-grid"></div>
+                    <div class="calendar-agenda">
+                        <div class="calendar-agenda-heading">
+                            <div>
+                                <span class="eyebrow">Selected day</span>
+                                <h2 id="calendarSelectedLabel"></h2>
+                            </div>
+                            <span id="calendarEventCount" class="calendar-count"></span>
+                        </div>
+                        <div id="calendarAgendaList" class="calendar-agenda-list"></div>
+                        <div id="calendarTimeline" class="calendar-timeline"></div>
                     </div>
                 </div>
             </div>
         </aside>
-
-        <!-- map area; placeholder iframe for API -->
         <section class="map-wrapper">
             <div id="map"></div>
         </section>
@@ -163,7 +194,9 @@
             <h2 id="modalTitle">Edit Point</h2>
             <label>Name:<br><input type="text" id="modalName" class="input-field" placeholder="Point name"></label>
             <label>Address (search):<br><input type="text" id="modalAddress" class="input-field" placeholder="Type an address"></label>
-            <label>Day (optional):<br><input type="number" id="modalDay" min="1" class="input-field" style="width:4rem;" placeholder="Leave empty for unscheduled"></label>
+            <label id="modalScheduleDateLabel">Schedule date (optional):<br><input type="date" id="modalScheduleDate" class="input-field"></label>
+            <label id="modalLegacyDayLabel">Day (optional):<br><input type="number" id="modalLegacyDay" min="1" class="input-field"></label>
+            <small id="modalScheduleHint" class="field-hint" style="display:block;margin-top:-0.3rem;margin-bottom:0.6rem;font-size:0.8rem;color:var(--text-2);">Date and day automatically sync when a trip start date is set.</small>
             <label>Category:<br><select id="modalCategory" class="input-field"></select></label>
             <label>Description:<br><textarea id="modalDescription" class="input-field" placeholder="Add notes" style="resize:vertical;height:60px;"></textarea></label>
             <label>Photo URL:<br><input type="url" id="modalPhoto" class="input-field" placeholder="https://example.com/photo.jpg"></label>
@@ -179,12 +212,51 @@
         </div>
     </div>
 
+    <!-- Calendar event modal -->
+    <div id="calendarEventModal" class="modal hidden">
+        <div class="modal-content calendar-event-modal-content">
+            <span class="eyebrow">Calendar event</span>
+            <h2 id="calendarEventModalTitle">Add event</h2>
+            <label>Title:<br><input type="text" id="calendarEventTitle" class="input-field" placeholder="e.g. Dinner reservation"></label>
+            <label>Date:<br><input type="date" id="calendarEventDate" class="input-field"></label>
+            <label class="calendar-checkbox-label"><input type="checkbox" id="calendarEventAllDay" checked> All day</label>
+            <div id="calendarTimeFields" class="calendar-time-fields hidden">
+                <label>Starts:<br><input type="time" id="calendarEventStartTime" class="input-field"></label>
+                <label>Ends:<br><input type="time" id="calendarEventEndTime" class="input-field"></label>
+            </div>
+            <label>Description:<br><textarea id="calendarEventDescription" class="input-field" placeholder="Add context or notes" style="resize:vertical;height:70px;"></textarea></label>
+            <div class="calendar-link-fields">
+                <label>Link to point:<br><select id="calendarEventPoint" class="input-field"><option value="">None</option></select></label>
+                <label>Link to task:<br><select id="calendarEventTask" class="input-field"><option value="">None</option></select></label>
+            </div>
+            <label>Color:<br><input type="color" id="calendarEventColor" value="#1788f7" class="calendar-color-input"></label>
+            <div class="calendar-modal-actions">
+                <button id="calendarEventSave" class="action-btn add-btn" type="button">Save event</button>
+                <button id="calendarEventDelete" class="action-btn calendar-delete-btn" type="button">Delete</button>
+                <button id="calendarEventCancel" class="action-btn" type="button">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal hidden">
         <div class="modal-content" style="max-width: 500px;">
             <h2>Settings</h2>
+            <label>Planning system:<br>
+                <select id="settingsPlanningMode" class="input-field">
+                    <option value="calendar">Calendar dates</option>
+                    <option value="legacy">Legacy trip days</option>
+                </select>
+            </label>
+            <p class="planning-mode-hint">Switching changes the planning view only. Existing dates and legacy day assignments stay safe.</p>
             <label>Max Days to Display:<br><input type="number" id="settingsMaxDays" min="1" max="30" value="7" class="input-field"></label>
             <p style="font-size:0.85rem;color:var(--text-2);margin-top:0.5rem;">Calendar will show up to this many days</p>
+            <div class="planner-settings-grid">
+                <label>Trip start date:<br><input type="date" id="settingsTripStartDate" class="input-field"></label>
+                <label>Day starts:<br><input type="time" id="settingsDayStartTime" value="08:00" class="input-field"></label>
+                <label>Day ends:<br><input type="time" id="settingsDayEndTime" value="22:00" class="input-field"></label>
+                <label>Default visit minutes:<br><input type="number" id="settingsVisitMinutes" min="15" max="480" step="15" value="60" class="input-field"></label>
+            </div>
             <label style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;"> 
                 <input type="checkbox" id="settingsAutoFetch"> Auto-fetch photo when none provided(clens)
             </label>
@@ -192,6 +264,28 @@
                 <h3 style="margin:0 0 0.75rem 0;">Categories</h3>
                 <div id="categoryList" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
                 <button id="addCategoryBtn" type="button" class="action-btn add-btn" style="margin-top:0.75rem;">+ Add Category</button>
+            </div>
+            <h3 class="danger-zone-header">Danger Zone</h3>
+            <div class="settings-danger-zone">
+                <div>
+                    <strong>Calendar data</strong>
+                    <p>Remove every event from this project. Points and tasks will stay.</p>
+                </div>
+                <button id="clearCalendarBtn" type="button" class="action-btn settings-danger-btn">Clear calendar</button>
+            </div>
+            <div class="settings-danger-zone">
+                <div>
+                    <strong>Point data</strong>
+                    <p>Remove every saved map point from this project.</p>
+                </div>
+                <button id="clearPointsSettingsBtn" type="button" class="action-btn settings-danger-btn">Clear points</button>
+            </div>
+            <div class="settings-danger-zone">
+                <div>
+                    <strong>Task data</strong>
+                    <p>Remove every task from this project.</p>
+                </div>
+                <button id="clearTasksSettingsBtn" type="button" class="action-btn settings-danger-btn">Clear tasks</button>
             </div>
             <div style="margin-top:1.5rem;display:flex;gap:0.5rem;justify-content:flex-end;">
                 <button id="settingsSave" class="action-btn add-btn">Save</button>
