@@ -4,6 +4,7 @@ services:
   compass:
     build: .
     container_name: compass-app
+    network_mode: bridge
     ports:
       - "5030:5030"
     dns:
