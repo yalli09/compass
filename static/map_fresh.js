@@ -1,6 +1,3 @@
-// Compass Map Application - Complete Polish Edition
-// Real-time sync via Socket.IO, address-based geocoding, no lat/lng UI clutter
-
 let map;
 let markers = [];
 let points = [];
@@ -1158,9 +1155,25 @@ function updatePlanningModeUI() {
     document.getElementById('modalLegacyDayLabel')?.classList.remove('hidden');
     const mapHeading = document.querySelector('#mapPoints .form-section h2');
     if (mapHeading) mapHeading.textContent = legacy ? 'Filter by day' : 'Filter by date';
+    updateDatePickerAnchors();
     syncPointEntryDefaults();
     renderCalendar();
     applyFilter();
+}
+
+function setDatePickerAnchor(inputId, tripStartDateValue, clear = true) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const start = tripStartDateValue ? String(tripStartDateValue).split('T')[0] : '';
+    if (clear) input.value = '';
+    if (start) input.min = start;
+    else input.removeAttribute('min');
+}
+
+function updateDatePickerAnchors(clear = false) {
+    ['pointScheduleDate', 'modalScheduleDate', 'taskDueDate', 'calendarEventDate'].forEach(inputId => {
+        setDatePickerAnchor(inputId, tripStartDate, clear);
+    });
 }
 
 function syncPointEntryDefaults() {
@@ -1168,21 +1181,8 @@ function syncPointEntryDefaults() {
     const dayInput = document.getElementById('pointLegacyDay');
     if (!dateInput || !dayInput) return;
 
-    if (planningMode === 'legacy') {
-        if (selectedOffset !== null) {
-            dayInput.value = selectedOffset;
-            if (tripStartDate) {
-                dateInput.value = calculateDateStringFromDay(selectedOffset) || '';
-            }
-        }
-    } else {
-        const defaultDate = selectedCalendarDateFilter || calendarSelectedDate || tripStartDate || formatCalendarDate(new Date());
-        dateInput.value = defaultDate;
-        if (tripStartDate) {
-            const day = calculateDayFromDateString(defaultDate);
-            dayInput.value = (day && day >= 1) ? day : '';
-        }
-    }
+    setDatePickerAnchor('pointScheduleDate', tripStartDate);
+    dayInput.value = '';
 }
 
 function formatCalendarDate(date) {
@@ -1452,7 +1452,11 @@ function openCalendarEventModal(event = null) {
     const modal = document.getElementById('calendarEventModal');
     document.getElementById('calendarEventModalTitle').textContent = event ? 'Edit event' : 'Add event';
     document.getElementById('calendarEventTitle').value = event?.title || '';
-    document.getElementById('calendarEventDate').value = event?.date || calendarSelectedDate;
+    if (event) {
+        document.getElementById('calendarEventDate').value = event.date || '';
+    } else {
+        setDatePickerAnchor('calendarEventDate', tripStartDate);
+    }
     document.getElementById('calendarEventAllDay').checked = event ? event.allDay !== false : true;
     document.getElementById('calendarEventStartTime').value = event?.startTime || '';
     document.getElementById('calendarEventEndTime').value = event?.endTime || '';
@@ -1720,21 +1724,8 @@ function showAddModal() {
     openModal('Add Point');
     document.getElementById('modalName').value = '';
     document.getElementById('modalAddress').value = '';
-    document.getElementById('modalScheduleDate').value = '';
+    setDatePickerAnchor('modalScheduleDate', tripStartDate);
     document.getElementById('modalLegacyDay').value = '';
-    if (planningMode === 'legacy' && selectedOffset !== null) {
-        document.getElementById('modalLegacyDay').value = selectedOffset;
-        if (tripStartDate) {
-            document.getElementById('modalScheduleDate').value = calculateDateStringFromDay(selectedOffset) || '';
-        }
-    } else if (planningMode === 'calendar') {
-        const defaultDate = selectedCalendarDateFilter || calendarSelectedDate || tripStartDate || formatCalendarDate(new Date());
-        document.getElementById('modalScheduleDate').value = defaultDate;
-        if (tripStartDate) {
-            const day = calculateDayFromDateString(defaultDate);
-            if (day && day >= 1) document.getElementById('modalLegacyDay').value = day;
-        }
-    }
     document.getElementById('modalCategory').value = 'point';
     document.getElementById('modalDescription').value = '';
     document.getElementById('modalPhoto').value = '';
@@ -2201,6 +2192,7 @@ function openModalSettings() {
     fetch(buildUrl('/api/settings')).then(response => response.json()).then(settings => {
         document.getElementById('settingsTripStartDate').value = settings.tripStartDate || '';
         tripStartDate = settings.tripStartDate || null;
+        updateDatePickerAnchors();
         document.getElementById('settingsDayStartTime').value = settings.dayStartTime || '08:00';
         document.getElementById('settingsDayEndTime').value = settings.dayEndTime || '22:00';
         document.getElementById('settingsVisitMinutes').value = settings.defaultVisitMinutes || 60;

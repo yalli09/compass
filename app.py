@@ -12,11 +12,22 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from clens import get_best_image
 from routing_service import RoutingError, calculate_route
+import secrets
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'ljgdmglhdhdbdbfbdbfdbdgpdkgp'
-# Use threading async mode on Windows to avoid Eventlet connection shutdown noise.
-# Flask-SocketIO can still handle real-time updates while using the built-in thread pool.
+
+secret_file = ".skey"
+
+if os.path.exists(secret_file):
+    with open(secret_file, "r", encoding="utf-8") as f:
+        secret_key = f.read().strip()
+else:
+    secret_key = secrets.token_hex(32)
+    with open(secret_file, "w") as f:
+        f.write(secret_key)
+
+app.config["SECRET_KEY"] = secret_key
+
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading', logger=False, engineio_logger=False)
 JSON_DIR = os.path.join(os.path.dirname(__file__), 'json')
 if not os.path.exists(JSON_DIR):
