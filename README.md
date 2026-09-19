@@ -40,11 +40,11 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/26989c14-cd8c-4ffd-bdab-5553976bb0af" width="100%" alt="Compass Screenshot 1" />
+  <img src="https://github.com/user-attachments/assets/0b798ecf-558f-439d-8043-7b34c926a0e7" width="100%" alt="Compass Screenshot 1" />
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/adb081d0-e4b9-4e3e-940f-523e029ec644" width="100%" alt="Compass Screenshot 2" />
+  <img src="https://github.com/user-attachments/assets/47e151cf-4fa3-44d1-b3fa-629581b92c2c" width="100%" alt="Compass Screenshot 2" />
 </p>
 
 ---

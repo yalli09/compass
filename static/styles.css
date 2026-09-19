@@ -498,6 +498,15 @@ h2 {
     transition: all 0.2s ease;
 }
 
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+    min-width: 0;
+    min-height: 2.75rem;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
 .input-field:focus {
     outline: none;
     border-color: var(--accent-400);
@@ -792,11 +801,6 @@ h2 {
     box-sizing: border-box;
 }
 
-.planner-settings-grid input[type="date"],
-.planner-settings-grid input[type="time"] {
-    min-width: 0;
-    -webkit-appearance: none;
-}
 
 .planner-settings-grid .input-field {
     margin: 0;
