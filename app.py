@@ -13,6 +13,8 @@ from urllib.request import Request, urlopen
 from clens import get_best_image
 from routing_service import RoutingError, calculate_route
 import secrets
+from flask import send_from_directory
+
 
 app = Flask(__name__)
 
@@ -141,7 +143,7 @@ def normalize_planner_settings(settings):
 def default_settings():
     return {
         'maxDays': 7,
-        'autoFetchImage': False,
+        'autoFetchImage': True,
         'categories': default_categories(),
         **DEFAULT_PLANNER_SETTINGS,
     }
@@ -483,6 +485,9 @@ def index():
 def help_page():
     return render_template('help.html')
 
+@app.route('/AIskill.md')
+def serve_aiskill():
+    return send_from_directory('.', 'AIskill.md')
 
 @app.route('/api/geocode', methods=['GET'])
 def api_geocode():

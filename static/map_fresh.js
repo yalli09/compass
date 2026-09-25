@@ -3013,6 +3013,51 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+
+    // AI Skill Pre-load
+    let aiSkillContent = '';
+
+    fetch('/AIskill.md')
+      .then(res => res.text())
+      .then(text => { aiSkillContent = text; })
+      .catch(err => console.error('Failed to pre-load AIskill.md:', err));
+
+    // Cross-Platform Copy Helper (Supports Mobile, Safari, and Desktop)
+    async function copyToClipboard(textToCopy) {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+          return true;
+        } catch (err) {
+          console.warn('Clipboard API failed, falling back:', err);
+        }
+      }
+
+      const textArea = document.createElement('textarea');
+      textArea.value = textToCopy;
+      textArea.style.position = 'fixed';
+      textArea.style.top = '0';
+      textArea.style.left = '0';
+      textArea.style.opacity = '0';
+      textArea.setAttribute('readonly', '');
+
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      textArea.setSelectionRange(0, 999999);
+
+      let success = false;
+      try {
+        success = document.execCommand('copy');
+      } catch (err) {
+        console.error('execCommand copy failed:', err);
+      }
+
+      document.body.removeChild(textArea);
+      return success;
+    }
+
+    // DOM Elements
     const deleteProjectItem = document.getElementById('deleteProjectItem');
     const exportJsonItem = document.getElementById('exportJsonItem');
     const importJsonItem = document.getElementById('importJsonItem');
@@ -3025,10 +3070,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const taskListTab = document.getElementById('taskListTab');
     const calendarTab = document.getElementById('calendarTab');
     const organizeDaysItem = document.getElementById('organizeDaysItem');
+    const aiskillcopy = document.getElementById('aiskillcopy');
     const settingsItem = document.getElementById('settingsItem');
     const createProjectSave = document.getElementById('createProjectSave');
     const createProjectCancel = document.getElementById('createProjectCancel');
 
+    // Event Listeners
     if (deleteProjectItem) deleteProjectItem.addEventListener('click', () => { deleteCurrentProject(); closeAllMenus(); });
     if (exportJsonItem) exportJsonItem.addEventListener('click', downloadJSON);
     if (importJsonItem) importJsonItem.addEventListener('click', openImportModal);
@@ -3041,6 +3088,16 @@ document.addEventListener('DOMContentLoaded', function() {
     if (taskListTab) taskListTab.addEventListener('click', () => { switchTab('taskList'); closeAllMenus(); });
     if (calendarTab) calendarTab.addEventListener('click', () => { switchTab('calendar'); closeAllMenus(); });
     if (organizeDaysItem) organizeDaysItem.addEventListener('click', atoss);
+
+    if (aiskillcopy) {
+      aiskillcopy.addEventListener('click', () => {
+        if (aiSkillContent) {
+          copyToClipboard(aiSkillContent);
+        }
+        closeAllMenus();
+      });
+    }
+
     if (settingsItem) settingsItem.addEventListener('click', openModalSettings);
     if (createProjectSave) createProjectSave.addEventListener('click', createProject);
     if (createProjectCancel) createProjectCancel.addEventListener('click', closeProjectModal);
@@ -3048,8 +3105,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Close menus when clicking elsewhere
     document.addEventListener('click', closeAllMenus);
     document.querySelectorAll('.menu-popup').forEach(f => {
-        f.addEventListener('click', e => e.stopPropagation());
+      f.addEventListener('click', e => e.stopPropagation());
     });
+
 });
 
 window.removePoint = removePoint;
